@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 type SneakerEntry = {
   id: string;
@@ -37,6 +37,7 @@ export default function App() {
   const [purchasePrice, setPurchasePrice] = useState('');
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     try {
@@ -135,6 +136,138 @@ export default function App() {
     persistEntries(nextEntries);
   };
 
+  const onExportEntries = () => {
+    if (entries.length === 0) {
+      window.alert('No entries to export yet.');
+      return;
+    }
+
+    const escapeCsvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const header = ['Shoe Name', 'Size', 'Purchase Date', 'Purchase Price', 'Image URL'];
+    const rows = entries.map((entry) => [
+      entry.shoeName,
+      entry.size,
+      entry.purchaseDate,
+      entry.purchasePrice.toFixed(2),
+      entry.imageUrl,
+    ]);
+
+    const csvContent = [header, ...rows]
+      .map((row) => row.map((cell) => escapeCsvCell(String(cell))).join(','))
+      .join('\n');
+
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const dateLabel = getTodayDate();
+    anchor.href = url;
+    anchor.download = `sneaker-portfolio-${dateLabel}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCsvLine = (line: string) => {
+    const fields: string[] = [];
+    let currentField = '';
+    let isInQuotes = false;
+
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index];
+      const nextChar = line[index + 1];
+
+      if (char === '"') {
+        if (isInQuotes && nextChar === '"') {
+          currentField += '"';
+          index += 1;
+        } else {
+          isInQuotes = !isInQuotes;
+        }
+        continue;
+      }
+
+      if (char === ',' && !isInQuotes) {
+        fields.push(currentField);
+        currentField = '';
+        continue;
+      }
+
+      currentField += char;
+    }
+
+    fields.push(currentField);
+    return fields.map((field) => field.trim());
+  };
+
+  const onImportButtonClick = () => {
+    importFileInputRef.current?.click();
+  };
+
+  const onImportEntries = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const rawText = await file.text();
+      const normalizedText = rawText.replace(/^\uFEFF/, '');
+      const lines = normalizedText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+      if (lines.length < 2) {
+        window.alert('The selected file has no data rows to import.');
+        return;
+      }
+
+      const header = parseCsvLine(lines[0]);
+      const expectedHeader = ['Shoe Name', 'Size', 'Purchase Date', 'Purchase Price', 'Image URL'];
+      const isExpectedHeader =
+        header.length === expectedHeader.length &&
+        header.every((column, index) => column === expectedHeader[index]);
+
+      if (!isExpectedHeader) {
+        window.alert('Invalid file format. Please import a file exported by this app.');
+        return;
+      }
+
+      const importedEntries: SneakerEntry[] = [];
+      for (const line of lines.slice(1)) {
+        const [shoe, sizeValue, dateValue, priceValue, imageValue] = parseCsvLine(line);
+        const parsedPrice = Number(priceValue);
+
+        if (!shoe || !sizeValue || !dateValue || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+          continue;
+        }
+
+        importedEntries.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          shoeName: shoe,
+          size: sizeValue,
+          purchaseDate: dateValue,
+          purchasePrice: parsedPrice,
+          imageUrl: imageValue || FALLBACK_IMAGE,
+        });
+      }
+
+      if (importedEntries.length === 0) {
+        window.alert('No valid rows were found to import.');
+        return;
+      }
+
+      const nextEntries = [...importedEntries, ...entries];
+      persistEntries(nextEntries);
+      window.alert(`Imported ${importedEntries.length} entr${importedEntries.length === 1 ? 'y' : 'ies'}.`);
+    } catch {
+      window.alert('Could not import this file. Please try again.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   return (
     <main className="page">
       <div className="container">
@@ -178,6 +311,22 @@ export default function App() {
         <p className="summary">
           {entries.length} pair{entries.length === 1 ? '' : 's'} • Total invested: ${totalInvested.toFixed(2)}
         </p>
+
+        <div className="dataActionRow">
+          <button className="exportButton" type="button" onClick={onExportEntries}>
+            Export to Excel (.csv)
+          </button>
+          <button className="exportButton" type="button" onClick={onImportButtonClick}>
+            Import from Excel (.csv)
+          </button>
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hiddenInput"
+            onChange={onImportEntries}
+          />
+        </div>
 
         <section className="list">
           {entries.length === 0 ? (

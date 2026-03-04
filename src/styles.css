@@ -67,6 +67,27 @@ body {
   margin: 10px 2px;
 }
 
+.exportButton {
+  margin: 0 2px 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1d2939;
+  padding: 8px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dataActionRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hiddenInput {
+  display: none;
+}
+
 .list {
   display: grid;
   gap: 10px;
