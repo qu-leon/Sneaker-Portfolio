@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "sneaks-api": "node sneaks-api-server.cjs",
-    "kicksdb-api": "node sneaks-api-server.cjs"
+    "sneaks-api": "node kicksdb-api-server.cjs",
+    "kicksdb-api": "node kicksdb-api-server.cjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

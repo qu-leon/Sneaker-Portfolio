@@ -63,3 +63,17 @@ Before first deploy, add this repository secret:
 - `VITE_SNEAKS_API_BASE_URL` = your hosted backend URL (for example, `https://your-api.example.com`)
 
 This value is injected at build time so your Pages site can call your backend instead of `localhost`.
+
+## Deploy backend on Render
+
+1. Push this repo to GitHub (includes `render.yaml`).
+2. In Render, click **New** → **Blueprint** and select this repository.
+3. Render will detect `render.yaml` and create `sneaker-portfolio-kicksdb-api`.
+4. In the service environment variables, set:
+   - `KICKSDB_API_KEY` = your KicksDB API key
+5. Deploy and copy the public Render URL, for example:
+   - `https://sneaker-portfolio-kicksdb-api.onrender.com`
+6. Test backend endpoints:
+   - `https://YOUR_RENDER_URL/health`
+   - `https://YOUR_RENDER_URL/search-image?q=Jordan%201`
+7. Set GitHub repository secret `VITE_SNEAKS_API_BASE_URL` to this Render URL, then push to `main` to redeploy Pages.
