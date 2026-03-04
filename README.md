@@ -3,7 +3,7 @@
 React web app with StockX-style portfolio functionality:
 
 - Adds shoe entries with shoe name, size, purchase date, and purchase price
-- Automatically looks up a shoe image using Sneaks-API
+- Automatically looks up a shoe image using KicksDB API
 - Shows all entries in a portfolio list (image on the left)
 - Saves entries locally in browser localStorage
 
@@ -14,31 +14,37 @@ React web app with StockX-style portfolio functionality:
    ```bash
    npm install
    ```
-3. Start the Sneaks-API image server:
+3. Set your KicksDB API key in your terminal:
    ```bash
-   npm run sneaks-api
+   KICKSDB_API_KEY=your_kicksdb_api_key
    ```
-4. In a second terminal, start the web app:
+4. Start the KicksDB image server:
+   ```bash
+   npm run kicksdb-api
+   ```
+5. In a second terminal, start the web app:
    ```bash
    npm run dev
    ```
-5. Open the local URL shown by Vite (usually http://localhost:5173).
+6. Open the local URL shown by Vite (usually http://localhost:5173).
 
 ## Notes
 
-- Image lookup tries Sneaks-API first, then Google Images (Custom Search API), and finally a query-based fallback image URL.
+- Image lookup tries KicksDB first and falls back to a query-based fallback image URL if no KicksDB image is available.
 - Purchase date uses the browser date picker and defaults to today.
 
-## Google Images setup (optional but recommended)
+## KicksDB setup
 
-Set these environment variables before starting `npm run sneaks-api`:
+Set these environment variables before starting `npm run kicksdb-api`:
 
 ```bash
-GOOGLE_API_KEY=your_google_custom_search_api_key
-GOOGLE_CSE_ID=your_custom_search_engine_id
+KICKSDB_API_KEY=your_kicksdb_api_key
+KICKSDB_BASE_URL=https://api.kicks.dev
+KICKSDB_MARKET=US
+KICKSDB_CURRENCY=USD
 ```
 
-Without these variables, the server skips Google Images and falls back to the query-based image URL.
+Only `KICKSDB_API_KEY` is required. Without it, the server skips KicksDB and falls back to query-based image URLs.
 
 ## Optional API host override
 
