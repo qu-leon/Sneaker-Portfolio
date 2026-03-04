@@ -53,3 +53,13 @@ If your frontend and API are on different hosts, set `VITE_SNEAKS_API_BASE_URL` 
 ```bash
 VITE_SNEAKS_API_BASE_URL=http://YOUR_HOST:4000 npm run dev
 ```
+
+## GitHub Pages deployment (GitHub Actions)
+
+The workflow in `.github/workflows/builddeploy.yaml` deploys on push to `main`.
+
+Before first deploy, add this repository secret:
+
+- `VITE_SNEAKS_API_BASE_URL` = your hosted backend URL (for example, `https://your-api.example.com`)
+
+This value is injected at build time so your Pages site can call your backend instead of `localhost`.
