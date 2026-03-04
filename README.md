@@ -1,6 +1,6 @@
-# Sneaker Portfolio (Mobile App)
+# Sneaker Portfolio (Web App)
 
-Expo React Native app with StockX-style portfolio functionality:
+React Native app with StockX-style portfolio functionality:
 
 - Adds shoe entries with shoe name, size, purchase date, and purchase price
 - Automatically looks up a shoe image using Sneaks-API
