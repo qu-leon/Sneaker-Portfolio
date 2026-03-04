@@ -13,6 +13,14 @@ const STORAGE_KEY = 'sneaker-portfolio-entries-v1';
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=60';
 
+const getTodayDate = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const getSneaksApiBaseUrl = () => {
   const envValue = (import.meta.env.VITE_SNEAKS_API_BASE_URL as string | undefined)?.trim();
   if (envValue) {
@@ -24,8 +32,8 @@ const getSneaksApiBaseUrl = () => {
 
 export default function App() {
   const [shoeName, setShoeName] = useState('');
-  const [size, setSize] = useState('');
-  const [purchaseDate, setPurchaseDate] = useState('');
+  const [size, setSize] = useState('10');
+  const [purchaseDate, setPurchaseDate] = useState(getTodayDate());
   const [purchasePrice, setPurchasePrice] = useState('');
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -46,6 +54,15 @@ export default function App() {
     () => entries.reduce((sum, entry) => sum + entry.purchasePrice, 0),
     [entries]
   );
+
+  const sizeOptions = useMemo(() => {
+    const options: string[] = [];
+    for (let value = 3; value <= 15; value += 0.5) {
+      const label = Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+      options.push(label);
+    }
+    return options;
+  }, []);
 
   const persistEntries = (nextEntries: SneakerEntry[]) => {
     setEntries(nextEntries);
@@ -100,12 +117,22 @@ export default function App() {
 
       persistEntries([newEntry, ...entries]);
       setShoeName('');
-      setSize('');
-      setPurchaseDate('');
+      setSize('10');
+      setPurchaseDate(getTodayDate());
       setPurchasePrice('');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const onDeleteEntry = (entryId: string) => {
+    const shouldDelete = window.confirm('Are you sure you want to delete this entry?');
+    if (!shouldDelete) {
+      return;
+    }
+
+    const nextEntries = entries.filter((entry) => entry.id !== entryId);
+    persistEntries(nextEntries);
   };
 
   return (
@@ -120,15 +147,20 @@ export default function App() {
             value={shoeName}
             onChange={(event) => setShoeName(event.target.value)}
           />
-          <input
+          <select
             className="input"
-            placeholder="Size"
             value={size}
             onChange={(event) => setSize(event.target.value)}
-          />
+          >
+            {sizeOptions.map((sizeOption) => (
+              <option key={sizeOption} value={sizeOption}>
+                {sizeOption}
+              </option>
+            ))}
+          </select>
           <input
             className="input"
-            placeholder="Purchase date (YYYY-MM-DD)"
+            type="date"
             value={purchaseDate}
             onChange={(event) => setPurchaseDate(event.target.value)}
           />
@@ -154,11 +186,18 @@ export default function App() {
             entries.map((entry) => (
               <article className="card entry" key={entry.id}>
                 <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
-                <div>
+                <div className="entryContent">
                   <h3 className="shoeName">{entry.shoeName}</h3>
                   <p className="meta">Size: {entry.size}</p>
                   <p className="meta">Date: {entry.purchaseDate}</p>
                   <p className="price">Paid: ${entry.purchasePrice.toFixed(2)}</p>
+                  <button
+                    type="button"
+                    className="deleteButton"
+                    onClick={() => onDeleteEntry(entry.id)}
+                  >
+                    Delete
+                  </button>
                 </div>
               </article>
             ))

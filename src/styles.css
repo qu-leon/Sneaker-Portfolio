@@ -85,6 +85,12 @@ body {
   padding: 10px;
 }
 
+.entryContent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 .thumb {
   width: 72px;
   height: 72px;
@@ -106,4 +112,15 @@ body {
 .price {
   margin: 4px 0 0;
   font-weight: 600;
+}
+
+.deleteButton {
+  margin-top: 8px;
+  border: 1px solid #fda29b;
+  background: #fff5f4;
+  color: #b42318;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
 }

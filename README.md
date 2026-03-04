@@ -26,8 +26,19 @@ React web app with StockX-style portfolio functionality:
 
 ## Notes
 
-- Image lookup uses a local Sneaks-API proxy server on port `4000` and falls back to a default sneaker image if no result is found.
-- Purchase date is currently entered as text (`YYYY-MM-DD`) for speed and simplicity.
+- Image lookup tries Sneaks-API first, then Google Images (Custom Search API), and finally a query-based fallback image URL.
+- Purchase date uses the browser date picker and defaults to today.
+
+## Google Images setup (optional but recommended)
+
+Set these environment variables before starting `npm run sneaks-api`:
+
+```bash
+GOOGLE_API_KEY=your_google_custom_search_api_key
+GOOGLE_CSE_ID=your_custom_search_engine_id
+```
+
+Without these variables, the server skips Google Images and falls back to the query-based image URL.
 
 ## Optional API host override
 
