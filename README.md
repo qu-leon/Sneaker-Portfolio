@@ -1,12 +1,17 @@
-# Sneaker Portfolio (React Fullstack Web App)
+# Sneaker Portfolio (Fullstack Web App)
 
-React web app with StockX-style portfolio functionality:
+StockX-style portfolio functionality:
 
 - Adds shoe entries with shoe name, size, purchase date, and purchase price
 - Automatically looks up a shoe image using KicksDB API
 - Shows all entries in a portfolio list (image on the left)
 - Saves entries locally in browser localStorage
 - Export your data to Excel to transfer to other local machines as well
+
+## Technologies
+- Typescript
+- React (Frontend)
+- KicksDB + Render (Backend)
 
 ## Run locally
 
