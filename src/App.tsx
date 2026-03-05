@@ -430,23 +430,25 @@ export default function App() {
         </section>
       </div>
 
-      <div className="sideNavButtons" aria-label="Page navigation controls">
-        <button className="sideNavButton" type="button" onClick={onScrollToTop}>
-          Top
+      <div className="floatingControlGroup" aria-label="Page controls">
+        <button
+          className="floatingAddButton"
+          type="button"
+          onClick={() => setIsEntryFormOpen((currentState) => !currentState)}
+          aria-label="Open sneaker entry form"
+        >
+          +
         </button>
-        <button className="sideNavButton" type="button" onClick={onScrollToBottom}>
-          Bottom
-        </button>
-      </div>
 
-      <button
-        className="floatingAddButton"
-        type="button"
-        onClick={() => setIsEntryFormOpen((currentState) => !currentState)}
-        aria-label="Open sneaker entry form"
-      >
-        +
-      </button>
+        <div className="sideNavButtons" aria-label="Page navigation controls">
+          <button className="sideNavButton" type="button" onClick={onScrollToTop}>
+            Top
+          </button>
+          <button className="sideNavButton" type="button" onClick={onScrollToBottom}>
+            Bottom
+          </button>
+        </div>
+      </div>
 
       {isEntryFormOpen ? (
         <div className="floatingOverlay" onMouseDown={onOverlayMouseDown}>
