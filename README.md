@@ -6,6 +6,7 @@ React web app with StockX-style portfolio functionality:
 - Automatically looks up a shoe image using KicksDB API
 - Shows all entries in a portfolio list (image on the left)
 - Saves entries locally in browser localStorage
+- Export your data to Excel to transfer to other local machines as well
 
 ## Run locally
 
