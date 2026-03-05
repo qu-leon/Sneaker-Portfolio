@@ -42,6 +42,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const floatingFormPanelRef = useRef<HTMLElement | null>(null);
+  const floatingAddButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     try {
@@ -102,14 +103,70 @@ export default function App() {
       return;
     }
 
+    const previouslyFocusedElement = document.activeElement as HTMLElement | null;
+    const panelElement = floatingFormPanelRef.current;
+    const getFocusableElements = () => {
+      if (!panelElement) {
+        return [] as HTMLElement[];
+      }
+
+      const focusableSelector =
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+      return Array.from(panelElement.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+        (element) => !element.hasAttribute('disabled')
+      );
+    };
+
+    const focusableElements = getFocusableElements();
+    if (focusableElements.length > 0) {
+      focusableElements[0].focus();
+    } else {
+      panelElement?.focus();
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsEntryFormOpen(false);
+        return;
+      }
+
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const currentFocusableElements = getFocusableElements();
+      if (currentFocusableElements.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const firstElement = currentFocusableElements[0];
+      const lastElement = currentFocusableElements[currentFocusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (event.shiftKey) {
+        if (activeElement === firstElement || !panelElement?.contains(activeElement)) {
+          event.preventDefault();
+          lastElement.focus();
+        }
+        return;
+      }
+
+      if (activeElement === lastElement || !panelElement?.contains(activeElement)) {
+        event.preventDefault();
+        firstElement.focus();
       }
     };
 
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      if (previouslyFocusedElement) {
+        previouslyFocusedElement.focus();
+      } else {
+        floatingAddButtonRef.current?.focus();
+      }
+    };
   }, [isEntryFormOpen]);
 
   const onOverlayMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -432,6 +489,7 @@ export default function App() {
 
       <div className="floatingControlGroup" aria-label="Page controls">
         <button
+          ref={floatingAddButtonRef}
           className="floatingAddButton"
           type="button"
           onClick={() => setIsEntryFormOpen((currentState) => !currentState)}
@@ -456,6 +514,9 @@ export default function App() {
             ref={floatingFormPanelRef}
             className="floatingFormPanel card"
             aria-label="Add sneaker entry panel"
+            role="dialog"
+            aria-modal="true"
+            tabIndex={-1}
           >
             <div className="floatingFormHeader">
               <h2 className="floatingFormTitle">Add Sneaker</h2>
