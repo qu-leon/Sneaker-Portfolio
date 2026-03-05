@@ -36,6 +36,7 @@ export default function App() {
   const [purchaseDate, setPurchaseDate] = useState(getTodayDate());
   const [purchasePrice, setPurchasePrice] = useState('');
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -56,6 +57,8 @@ export default function App() {
     [entries]
   );
 
+  const selectedCount = selectedEntryIds.length;
+
   const sizeOptions = useMemo(() => {
     const options: string[] = [];
     for (let value = 3; value <= 15; value += 0.5) {
@@ -69,6 +72,13 @@ export default function App() {
     setEntries(nextEntries);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntries));
   };
+
+  useEffect(() => {
+    setSelectedEntryIds((previousSelectedIds) => {
+      const validEntryIds = new Set(entries.map((entry) => entry.id));
+      return previousSelectedIds.filter((entryId) => validEntryIds.has(entryId));
+    });
+  }, [entries]);
 
   const findSneakerImage = async (query: string): Promise<string> => {
     try {
@@ -134,6 +144,34 @@ export default function App() {
 
     const nextEntries = entries.filter((entry) => entry.id !== entryId);
     persistEntries(nextEntries);
+  };
+
+  const onToggleEntrySelected = (entryId: string) => {
+    setSelectedEntryIds((previousSelectedIds) => {
+      const isSelected = previousSelectedIds.includes(entryId);
+      if (isSelected) {
+        return previousSelectedIds.filter((id) => id !== entryId);
+      }
+      return [...previousSelectedIds, entryId];
+    });
+  };
+
+  const onDeleteSelectedEntries = () => {
+    if (selectedEntryIds.length === 0) {
+      return;
+    }
+
+    const shouldDelete = window.confirm(
+      `Are you sure you want to delete ${selectedEntryIds.length} selected entr${selectedEntryIds.length === 1 ? 'y' : 'ies'}?`
+    );
+    if (!shouldDelete) {
+      return;
+    }
+
+    const selectedIdSet = new Set(selectedEntryIds);
+    const nextEntries = entries.filter((entry) => !selectedIdSet.has(entry.id));
+    persistEntries(nextEntries);
+    setSelectedEntryIds([]);
   };
 
   const onExportEntries = () => {
@@ -319,6 +357,14 @@ export default function App() {
           <button className="exportButton" type="button" onClick={onImportButtonClick}>
             Import from Excel (.csv)
           </button>
+          <button
+            className="deleteSelectedButton"
+            type="button"
+            onClick={onDeleteSelectedEntries}
+            disabled={selectedCount === 0}
+          >
+            Delete Selected ({selectedCount})
+          </button>
           <input
             ref={importFileInputRef}
             type="file"
@@ -334,6 +380,13 @@ export default function App() {
           ) : (
             entries.map((entry) => (
               <article className="card entry" key={entry.id}>
+                <input
+                  type="checkbox"
+                  className="entryCheckbox"
+                  checked={selectedEntryIds.includes(entry.id)}
+                  onChange={() => onToggleEntrySelected(entry.id)}
+                  aria-label={`Select ${entry.shoeName}`}
+                />
                 <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
                 <div className="entryContent">
                   <h3 className="shoeName">{entry.shoeName}</h3>
