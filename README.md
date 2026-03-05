@@ -8,7 +8,7 @@ StockX-style portfolio functionality:
 - Saves entries locally in browser localStorage
 - Export your data to Excel to transfer to other local machines as well
 
-## Technologies
+## Technologies Used
 - Typescript
 - React (Frontend)
 - KicksDB + Render (Backend)
