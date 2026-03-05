@@ -67,6 +67,10 @@ body {
   margin: 10px 2px;
 }
 
+.searchInput {
+  margin-bottom: 4px;
+}
+
 .exportButton {
   margin: 0 2px 12px;
   border: 1px solid #d0d5dd;
@@ -168,5 +172,79 @@ body {
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.sideNavButtons {
+  position: fixed;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 20;
+}
+
+.sideNavButton {
+  min-width: 68px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1d2939;
+  padding: 8px 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.floatingAddButton {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: 999px;
+  background: #111827;
+  color: #ffffff;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 30;
+}
+
+.floatingFormPanel {
+  position: fixed;
+  right: 16px;
+  bottom: 84px;
+  width: min(360px, calc(100vw - 32px));
+  z-index: 25;
+}
+
+.floatingOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  z-index: 24;
+}
+
+.floatingFormHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 12px 0;
+}
+
+.floatingFormTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.floatingFormCloseButton {
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1d2939;
+  padding: 4px 8px;
   cursor: pointer;
 }

@@ -35,10 +35,13 @@ export default function App() {
   const [size, setSize] = useState('10');
   const [purchaseDate, setPurchaseDate] = useState(getTodayDate());
   const [purchasePrice, setPurchasePrice] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isEntryFormOpen, setIsEntryFormOpen] = useState(false);
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const floatingFormPanelRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     try {
@@ -58,6 +61,20 @@ export default function App() {
   );
 
   const selectedCount = selectedEntryIds.length;
+
+  const filteredEntries = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+    if (!keyword) {
+      return entries;
+    }
+
+    return entries.filter((entry) => {
+      const searchableText = [entry.shoeName, entry.size, entry.purchaseDate]
+        .join(' ')
+        .toLowerCase();
+      return searchableText.includes(keyword);
+    });
+  }, [entries, searchTerm]);
 
   const sizeOptions = useMemo(() => {
     const options: string[] = [];
@@ -79,6 +96,31 @@ export default function App() {
       return previousSelectedIds.filter((entryId) => validEntryIds.has(entryId));
     });
   }, [entries]);
+
+  useEffect(() => {
+    if (!isEntryFormOpen) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsEntryFormOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isEntryFormOpen]);
+
+  const onOverlayMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!floatingFormPanelRef.current) {
+      return;
+    }
+
+    if (!floatingFormPanelRef.current.contains(event.target as Node)) {
+      setIsEntryFormOpen(false);
+    }
+  };
 
   const findSneakerImage = async (query: string): Promise<string> => {
     try {
@@ -131,6 +173,7 @@ export default function App() {
       setSize('10');
       setPurchaseDate(getTodayDate());
       setPurchasePrice('');
+      setIsEntryFormOpen(false);
     } finally {
       setIsSaving(false);
     }
@@ -306,45 +349,25 @@ export default function App() {
     }
   };
 
+  const onScrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const onScrollToBottom = () => {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  };
+
   return (
     <main className="page">
       <div className="container">
         <h1 className="title">Sneaker Portfolio</h1>
 
-        <form className="card form" onSubmit={onSubmit}>
-          <input
-            className="input"
-            placeholder="Shoe name (e.g. Jordan 1 Chicago)"
-            value={shoeName}
-            onChange={(event) => setShoeName(event.target.value)}
-          />
-          <select
-            className="input"
-            value={size}
-            onChange={(event) => setSize(event.target.value)}
-          >
-            {sizeOptions.map((sizeOption) => (
-              <option key={sizeOption} value={sizeOption}>
-                {sizeOption}
-              </option>
-            ))}
-          </select>
-          <input
-            className="input"
-            type="date"
-            value={purchaseDate}
-            onChange={(event) => setPurchaseDate(event.target.value)}
-          />
-          <input
-            className="input"
-            placeholder="Purchase price"
-            value={purchasePrice}
-            onChange={(event) => setPurchasePrice(event.target.value)}
-          />
-          <button className="button" type="submit" disabled={isSaving}>
-            {isSaving ? 'Saving...' : 'Add to Portfolio'}
-          </button>
-        </form>
+        <input
+          className="input searchInput"
+          placeholder="Search by shoe, size, or date"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+        />
 
         <p className="summary">
           {entries.length} pair{entries.length === 1 ? '' : 's'} • Total invested: ${totalInvested.toFixed(2)}
@@ -375,10 +398,10 @@ export default function App() {
         </div>
 
         <section className="list">
-          {entries.length === 0 ? (
+          {filteredEntries.length === 0 ? (
             <p className="empty">No shoes yet. Add your first pair above.</p>
           ) : (
-            entries.map((entry) => (
+            filteredEntries.map((entry) => (
               <article className="card entry" key={entry.id}>
                 <input
                   type="checkbox"
@@ -406,6 +429,80 @@ export default function App() {
           )}
         </section>
       </div>
+
+      <div className="sideNavButtons" aria-label="Page navigation controls">
+        <button className="sideNavButton" type="button" onClick={onScrollToTop}>
+          Top
+        </button>
+        <button className="sideNavButton" type="button" onClick={onScrollToBottom}>
+          Bottom
+        </button>
+      </div>
+
+      <button
+        className="floatingAddButton"
+        type="button"
+        onClick={() => setIsEntryFormOpen((currentState) => !currentState)}
+        aria-label="Open sneaker entry form"
+      >
+        +
+      </button>
+
+      {isEntryFormOpen ? (
+        <div className="floatingOverlay" onMouseDown={onOverlayMouseDown}>
+          <section
+            ref={floatingFormPanelRef}
+            className="floatingFormPanel card"
+            aria-label="Add sneaker entry panel"
+          >
+            <div className="floatingFormHeader">
+              <h2 className="floatingFormTitle">Add Sneaker</h2>
+              <button
+                type="button"
+                className="floatingFormCloseButton"
+                onClick={() => setIsEntryFormOpen(false)}
+                aria-label="Close add sneaker panel"
+              >
+                x
+              </button>
+            </div>
+            <form className="form" onSubmit={onSubmit}>
+              <input
+                className="input"
+                placeholder="Shoe name (e.g. Jordan 1 Chicago)"
+                value={shoeName}
+                onChange={(event) => setShoeName(event.target.value)}
+              />
+              <select
+                className="input"
+                value={size}
+                onChange={(event) => setSize(event.target.value)}
+              >
+                {sizeOptions.map((sizeOption) => (
+                  <option key={sizeOption} value={sizeOption}>
+                    {sizeOption}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="input"
+                type="date"
+                value={purchaseDate}
+                onChange={(event) => setPurchaseDate(event.target.value)}
+              />
+              <input
+                className="input"
+                placeholder="Purchase price"
+                value={purchasePrice}
+                onChange={(event) => setPurchasePrice(event.target.value)}
+              />
+              <button className="button" type="submit" disabled={isSaving}>
+                {isSaving ? 'Saving...' : 'Add to Portfolio'}
+              </button>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
