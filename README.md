@@ -1,4 +1,4 @@
-# Sneaker Portfolio (React Web App)
+# Sneaker Portfolio (React Fullstack Web App)
 
 React web app with StockX-style portfolio functionality:
 
