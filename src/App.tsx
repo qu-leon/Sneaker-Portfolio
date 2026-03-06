@@ -421,7 +421,7 @@ export default function App() {
 
         <input
           className="input searchInput"
-          placeholder="Search by shoe, size, or date"
+          placeholder="Search portfolio by shoe (brand, model), size, or year purchased"
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
         />
@@ -500,10 +500,10 @@ export default function App() {
 
         <div className="sideNavButtons" aria-label="Page navigation controls">
           <button className="sideNavButton" type="button" onClick={onScrollToTop}>
-            Top
+            {'\u2191'}
           </button>
           <button className="sideNavButton" type="button" onClick={onScrollToBottom}>
-            Bottom
+            {'\u2193'}
           </button>
         </div>
       </div>

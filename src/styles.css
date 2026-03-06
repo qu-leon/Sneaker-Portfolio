@@ -183,7 +183,8 @@ body {
   top: 50%;
   transform: translateY(-50%);
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   z-index: 20;
 }
