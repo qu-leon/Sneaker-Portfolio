@@ -222,7 +222,8 @@ body {
 .floatingFormPanel {
   position: fixed;
   right: 16px;
-  bottom: 84px;
+  top: 50%;
+  transform: translateY(calc(-100% - 86px));
   width: min(360px, calc(100vw - 32px));
   z-index: 25;
 }
