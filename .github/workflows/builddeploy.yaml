@@ -38,7 +38,7 @@ jobs:
       - name: Build app
         env:
           VITE_SNEAKS_API_BASE_URL: ${{ secrets.VITE_SNEAKS_API_BASE_URL }}
-        run: npm run build -- --base=/${{ github.event.repository.name }}/
+        run: npm run build
 
       - name: Disable Jekyll
         run: touch dist/.nojekyll
