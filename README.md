@@ -1,5 +1,13 @@
 # Sneaker Portfolio (Fullstack Web App)
 
+## Project Description
+
+Sneaker Portfolio is a fullstack web application inspired by StockX portfolio tracking. It allows users to log sneaker purchases, view their collection in a clean card-based list, and quickly search or manage entries.
+
+On the frontend, the app is built with React + TypeScript (Vite) and includes a mobile-friendly UI with a floating action button, modal entry form, and keyboard-accessible interactions. Entry data is persisted in browser localStorage, with CSV import/export support for backup and transfer.
+
+On the backend, a Node.js + Express API acts as a secure proxy to KicksDB for sneaker image lookup. This keeps API credentials off the client while providing reliable image retrieval and fallback behavior when no match is found.
+
 StockX-style portfolio functionality:
 
 - Adds shoe entries with shoe name, size, purchase date, and purchase price
@@ -11,7 +19,8 @@ StockX-style portfolio functionality:
 ## Technologies Used
 - Typescript
 - React (Frontend)
-- KicksDB + Render (Backend)
+- Node.js
+- Express proxy (KicksDB API)
 
 ## Run locally
 
