@@ -43,6 +43,7 @@ export default function App() {
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const floatingFormPanelRef = useRef<HTMLElement | null>(null);
   const floatingAddButtonRef = useRef<HTMLButtonElement | null>(null);
+  const selectAllEntriesRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     try {
@@ -62,6 +63,8 @@ export default function App() {
   );
 
   const selectedCount = selectedEntryIds.length;
+  const areAllEntriesSelected = entries.length > 0 && selectedCount === entries.length;
+  const isPartiallySelected = selectedCount > 0 && selectedCount < entries.length;
 
   const filteredEntries = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
@@ -97,6 +100,14 @@ export default function App() {
       return previousSelectedIds.filter((entryId) => validEntryIds.has(entryId));
     });
   }, [entries]);
+
+  useEffect(() => {
+    if (!selectAllEntriesRef.current) {
+      return;
+    }
+
+    selectAllEntriesRef.current.indeterminate = isPartiallySelected;
+  }, [isPartiallySelected]);
 
   useEffect(() => {
     if (!isEntryFormOpen) {
@@ -261,9 +272,11 @@ export default function App() {
       return;
     }
 
-    const shouldDelete = window.confirm(
-      `Are you sure you want to delete ${selectedEntryIds.length} selected entr${selectedEntryIds.length === 1 ? 'y' : 'ies'}?`
-    );
+    const confirmationMessage = areAllEntriesSelected
+      ? 'Are you sure you want to delete all entries?'
+      : `Are you sure you want to delete ${selectedEntryIds.length} selected entr${selectedEntryIds.length === 1 ? 'y' : 'ies'}?`;
+
+    const shouldDelete = window.confirm(confirmationMessage);
     if (!shouldDelete) {
       return;
     }
@@ -271,6 +284,15 @@ export default function App() {
     const selectedIdSet = new Set(selectedEntryIds);
     const nextEntries = entries.filter((entry) => !selectedIdSet.has(entry.id));
     persistEntries(nextEntries);
+    setSelectedEntryIds([]);
+  };
+
+  const onToggleAllEntriesSelected = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      setSelectedEntryIds(entries.map((entry) => entry.id));
+      return;
+    }
+
     setSelectedEntryIds([]);
   };
 
@@ -445,6 +467,18 @@ export default function App() {
           >
             Delete Selected ({selectedCount})
           </button>
+          <label className="selectAllControl">
+            <input
+              ref={selectAllEntriesRef}
+              type="checkbox"
+              className="entryCheckbox"
+              checked={areAllEntriesSelected}
+              onChange={onToggleAllEntriesSelected}
+              disabled={entries.length === 0}
+              aria-label="Select all entries"
+            />
+            Select All
+          </label>
           <input
             ref={importFileInputRef}
             type="file"

@@ -106,6 +106,15 @@ body {
   flex-wrap: wrap;
 }
 
+.selectAllControl {
+  margin: 0 2px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #344054;
+  font-weight: 600;
+}
+
 .hiddenInput {
   display: none;
 }
