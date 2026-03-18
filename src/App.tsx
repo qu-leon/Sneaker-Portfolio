@@ -459,14 +459,6 @@ export default function App() {
           <button className="exportButton" type="button" onClick={onImportButtonClick}>
             Import from Excel (.csv)
           </button>
-          <button
-            className="deleteSelectedButton"
-            type="button"
-            onClick={onDeleteSelectedEntries}
-            disabled={selectedCount === 0}
-          >
-            Delete Selected ({selectedCount})
-          </button>
           <label className="selectAllControl">
             <input
               ref={selectAllEntriesRef}
@@ -479,6 +471,14 @@ export default function App() {
             />
             Select All
           </label>
+          <button
+            className="deleteSelectedButton"
+            type="button"
+            onClick={onDeleteSelectedEntries}
+            disabled={selectedCount === 0}
+          >
+            Delete Selected ({selectedCount})
+          </button>
           <input
             ref={importFileInputRef}
             type="file"
