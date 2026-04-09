@@ -9,6 +9,14 @@ type SneakerEntry = {
   imageUrl: string;
 };
 
+type SortOption =
+  | 'name-asc'
+  | 'name-desc'
+  | 'date-asc'
+  | 'date-desc'
+  | 'price-asc'
+  | 'price-desc';
+
 const STORAGE_KEY = 'sneaker-portfolio-entries-v1';
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=60';
@@ -36,6 +44,7 @@ export default function App() {
   const [purchaseDate, setPurchaseDate] = useState(getTodayDate());
   const [purchasePrice, setPurchasePrice] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortOption, setSortOption] = useState<SortOption>('name-asc');
   const [isEntryFormOpen, setIsEntryFormOpen] = useState(false);
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
@@ -79,6 +88,40 @@ export default function App() {
       return searchableText.includes(keyword);
     });
   }, [entries, searchTerm]);
+
+  const sortedEntries = useMemo(() => {
+    const entriesToSort = [...filteredEntries];
+
+    entriesToSort.sort((firstEntry, secondEntry) => {
+      if (sortOption === 'price-asc') {
+        return firstEntry.purchasePrice - secondEntry.purchasePrice;
+      }
+
+      if (sortOption === 'price-desc') {
+        return secondEntry.purchasePrice - firstEntry.purchasePrice;
+      }
+
+      if (sortOption === 'date-asc') {
+        return firstEntry.purchaseDate.localeCompare(secondEntry.purchaseDate);
+      }
+
+      if (sortOption === 'date-desc') {
+        return secondEntry.purchaseDate.localeCompare(firstEntry.purchaseDate);
+      }
+
+      if (sortOption === 'name-desc') {
+        return secondEntry.shoeName.localeCompare(firstEntry.shoeName, undefined, {
+          sensitivity: 'base',
+        });
+      }
+
+      return firstEntry.shoeName.localeCompare(secondEntry.shoeName, undefined, {
+        sensitivity: 'base',
+      });
+    });
+
+    return entriesToSort;
+  }, [filteredEntries, sortOption]);
 
   const sizeOptions = useMemo(() => {
     const options: string[] = [];
@@ -459,26 +502,41 @@ export default function App() {
           <button className="exportButton" type="button" onClick={onImportButtonClick}>
             Import from Excel (.csv)
           </button>
-          <label className="selectAllControl">
-            <input
-              ref={selectAllEntriesRef}
-              type="checkbox"
-              className="entryCheckbox"
-              checked={areAllEntriesSelected}
-              onChange={onToggleAllEntriesSelected}
-              disabled={entries.length === 0}
-              aria-label="Select all entries"
-            />
-            Select All
-          </label>
-          <button
-            className="deleteSelectedButton"
-            type="button"
-            onClick={onDeleteSelectedEntries}
-            disabled={selectedCount === 0}
+          <select
+            className="sortFieldSelect"
+            value={sortOption}
+            onChange={(event) => setSortOption(event.target.value as SortOption)}
+            aria-label="Sort entries by"
           >
-            Delete Selected ({selectedCount})
-          </button>
+            <option value="name-asc">Sort: Name A-Z</option>
+            <option value="name-desc">Sort: Name Z-A</option>
+            <option value="date-asc">Sort: Date Old-New</option>
+            <option value="date-desc">Sort: Date New-Old</option>
+            <option value="price-asc">Sort: Price Low-High</option>
+            <option value="price-desc">Sort: Price High-Low</option>
+          </select>
+          <div className="bulkActionRow">
+            <label className="selectAllControl">
+              <input
+                ref={selectAllEntriesRef}
+                type="checkbox"
+                className="entryCheckbox"
+                checked={areAllEntriesSelected}
+                onChange={onToggleAllEntriesSelected}
+                disabled={entries.length === 0}
+                aria-label="Select all entries"
+              />
+              Select All
+            </label>
+            <button
+              className="deleteSelectedButton"
+              type="button"
+              onClick={onDeleteSelectedEntries}
+              disabled={selectedCount === 0}
+            >
+              Delete Selected ({selectedCount})
+            </button>
+          </div>
           <input
             ref={importFileInputRef}
             type="file"
@@ -489,10 +547,10 @@ export default function App() {
         </div>
 
         <section className="list">
-          {filteredEntries.length === 0 ? (
+          {sortedEntries.length === 0 ? (
             <p className="empty">No shoes yet. Add your first pair above.</p>
           ) : (
-            filteredEntries.map((entry) => (
+            sortedEntries.map((entry) => (
               <article className="card entry" key={entry.id}>
                 <input
                   type="checkbox"
