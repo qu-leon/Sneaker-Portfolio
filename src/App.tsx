@@ -44,7 +44,7 @@ export default function App() {
   const [purchaseDate, setPurchaseDate] = useState(getTodayDate());
   const [purchasePrice, setPurchasePrice] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortOption, setSortOption] = useState<SortOption>('name-asc');
+  const [sortOption, setSortOption] = useState<SortOption>('date-desc');
   const [isEntryFormOpen, setIsEntryFormOpen] = useState(false);
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
