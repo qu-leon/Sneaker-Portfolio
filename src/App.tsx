@@ -10,12 +10,12 @@ type SneakerEntry = {
 };
 
 type SortOption =
-  | 'name-asc'
-  | 'name-desc'
-  | 'date-asc'
   | 'date-desc'
-  | 'price-asc'
-  | 'price-desc';
+  | 'date-asc'
+  | 'name-desc'
+  | 'name-asc'
+  | 'price-desc'
+  | 'price-asc';
 
 const STORAGE_KEY = 'sneaker-portfolio-entries-v1';
 const FALLBACK_IMAGE =
