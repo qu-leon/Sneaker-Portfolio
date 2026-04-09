@@ -508,12 +508,12 @@ export default function App() {
             onChange={(event) => setSortOption(event.target.value as SortOption)}
             aria-label="Sort entries by"
           >
+            <option value="date-desc">Sort: Date New-Old</option>
+            <option value="date-asc">Sort: Date Old-New</option>
             <option value="name-asc">Sort: Name A-Z</option>
             <option value="name-desc">Sort: Name Z-A</option>
-            <option value="date-asc">Sort: Date Old-New</option>
-            <option value="date-desc">Sort: Date New-Old</option>
-            <option value="price-asc">Sort: Price Low-High</option>
             <option value="price-desc">Sort: Price High-Low</option>
+            <option value="price-asc">Sort: Price Low-High</option>
           </select>
           <div className="bulkActionRow">
             <label className="selectAllControl">
