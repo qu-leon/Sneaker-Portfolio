@@ -204,8 +204,24 @@ body {
   font-weight: 600;
 }
 
-.deleteButton {
+.entryActionRow {
   margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.editButton {
+  border: 1px solid #cdd5df;
+  background: #ffffff;
+  color: #1d2939;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.deleteButton {
+  margin-top: 0;
   border: 1px solid #fda29b;
   background: #fff5f4;
   color: #b42318;

@@ -73,6 +73,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('date-desc');
   const [isEntryFormOpen, setIsEntryFormOpen] = useState(false);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -101,6 +102,7 @@ export default function App() {
   const selectedCount = selectedEntryIds.length;
   const areAllEntriesSelected = entries.length > 0 && selectedCount === entries.length;
   const isPartiallySelected = selectedCount > 0 && selectedCount < entries.length;
+  const isEditingEntry = editingEntryId !== null;
 
   const filteredEntries = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
@@ -159,6 +161,24 @@ export default function App() {
     return options;
   }, []);
 
+  const resetEntryForm = () => {
+    setShoeName('');
+    setSize('10');
+    setPurchaseDate(getTodayDate());
+    setPurchasePrice('');
+  };
+
+  const openAddEntryForm = () => {
+    setEditingEntryId(null);
+    resetEntryForm();
+    setIsEntryFormOpen(true);
+  };
+
+  const closeEntryForm = () => {
+    setIsEntryFormOpen(false);
+    setEditingEntryId(null);
+  };
+
   const persistEntries = (nextEntries: SneakerEntry[]) => {
     setEntries(nextEntries);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntries));
@@ -207,6 +227,7 @@ export default function App() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        setEditingEntryId(null);
         setIsEntryFormOpen(false);
         return;
       }
@@ -256,8 +277,17 @@ export default function App() {
     }
 
     if (!floatingFormPanelRef.current.contains(event.target as Node)) {
-      setIsEntryFormOpen(false);
+      closeEntryForm();
     }
+  };
+
+  const onEditEntry = (entry: SneakerEntry) => {
+    setEditingEntryId(entry.id);
+    setShoeName(entry.shoeName);
+    setSize(entry.size);
+    setPurchaseDate(entry.purchaseDate);
+    setPurchasePrice(entry.purchasePrice.toFixed(2));
+    setIsEntryFormOpen(true);
   };
 
   const findSneakerImage = async (query: string): Promise<string> => {
@@ -302,22 +332,52 @@ export default function App() {
 
     setIsSaving(true);
     try {
-      const imageUrl = await findSneakerImage(shoeName.trim());
-      const newEntry: SneakerEntry = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        shoeName: shoeName.trim(),
-        size: size.trim(),
-        purchaseDate: normalizedPurchaseDate,
-        purchasePrice: parsedPrice,
-        imageUrl,
-      };
+      const trimmedShoeName = shoeName.trim();
+      const trimmedSize = size.trim();
 
-      persistEntries([newEntry, ...entries]);
-      setShoeName('');
-      setSize('10');
-      setPurchaseDate(getTodayDate());
-      setPurchasePrice('');
-      setIsEntryFormOpen(false);
+      if (isEditingEntry && editingEntryId) {
+        const existingEntry = entries.find((entry) => entry.id === editingEntryId);
+        if (!existingEntry) {
+          window.alert('The entry you are editing was not found. Please try again.');
+          return;
+        }
+
+        const shouldRefreshImage =
+          existingEntry.shoeName.trim().toLowerCase() !== trimmedShoeName.toLowerCase();
+        const imageUrl = shouldRefreshImage
+          ? await findSneakerImage(trimmedShoeName)
+          : existingEntry.imageUrl || FALLBACK_IMAGE;
+
+        const nextEntries = entries.map((entry) =>
+          entry.id === editingEntryId
+            ? {
+                ...entry,
+                shoeName: trimmedShoeName,
+                size: trimmedSize,
+                purchaseDate: normalizedPurchaseDate,
+                purchasePrice: parsedPrice,
+                imageUrl,
+              }
+            : entry
+        );
+
+        persistEntries(nextEntries);
+      } else {
+        const imageUrl = await findSneakerImage(trimmedShoeName);
+        const newEntry: SneakerEntry = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          shoeName: trimmedShoeName,
+          size: trimmedSize,
+          purchaseDate: normalizedPurchaseDate,
+          purchasePrice: parsedPrice,
+          imageUrl,
+        };
+
+        persistEntries([newEntry, ...entries]);
+      }
+
+      resetEntryForm();
+      closeEntryForm();
     } finally {
       setIsSaving(false);
     }
@@ -599,13 +659,22 @@ export default function App() {
                   <p className="meta">Size: {entry.size}</p>
                   <p className="meta">Date: {entry.purchaseDate}</p>
                   <p className="price">Paid: ${entry.purchasePrice.toFixed(2)}</p>
-                  <button
-                    type="button"
-                    className="deleteButton"
-                    onClick={() => onDeleteEntry(entry.id)}
-                  >
-                    Delete
-                  </button>
+                  <div className="entryActionRow">
+                    <button
+                      type="button"
+                      className="editButton"
+                      onClick={() => onEditEntry(entry)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="deleteButton"
+                      onClick={() => onDeleteEntry(entry.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </article>
             ))
@@ -618,7 +687,14 @@ export default function App() {
           ref={floatingAddButtonRef}
           className="floatingAddButton"
           type="button"
-          onClick={() => setIsEntryFormOpen((currentState) => !currentState)}
+          onClick={() => {
+            if (isEntryFormOpen) {
+              closeEntryForm();
+              return;
+            }
+
+            openAddEntryForm();
+          }}
           aria-label="Open sneaker entry form"
         >
           +
@@ -645,12 +721,12 @@ export default function App() {
             tabIndex={-1}
           >
             <div className="floatingFormHeader">
-              <h2 className="floatingFormTitle">Add Sneaker</h2>
+              <h2 className="floatingFormTitle">{isEditingEntry ? 'Edit Sneaker' : 'Add Sneaker'}</h2>
               <button
                 type="button"
                 className="floatingFormCloseButton"
-                onClick={() => setIsEntryFormOpen(false)}
-                aria-label="Close add sneaker panel"
+                onClick={closeEntryForm}
+                aria-label="Close sneaker form panel"
               >
                 x
               </button>
@@ -686,7 +762,7 @@ export default function App() {
                 onChange={(event) => setPurchasePrice(event.target.value)}
               />
               <button className="button" type="submit" disabled={isSaving}>
-                {isSaving ? 'Saving...' : 'Add to Portfolio'}
+                {isSaving ? 'Saving...' : isEditingEntry ? 'Save Changes' : 'Add to Portfolio'}
               </button>
             </form>
           </section>
