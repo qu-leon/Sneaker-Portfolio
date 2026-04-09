@@ -20,6 +20,7 @@ type SortOption =
 const STORAGE_KEY = 'sneaker-portfolio-entries-v1';
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=60';
+const ISO_DATE_PATTERN = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 
 const getTodayDate = () => {
   const today = new Date();
@@ -36,6 +37,32 @@ const getSneaksApiBaseUrl = () => {
   }
 
   return `${window.location.protocol}//${window.location.hostname}:4000`;
+};
+
+const normalizeToIsoDate = (dateValue: string): string | null => {
+  const trimmedValue = dateValue.trim();
+  const dateMatch = ISO_DATE_PATTERN.exec(trimmedValue);
+  if (!dateMatch) {
+    return null;
+  }
+
+  const year = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[3]);
+
+  const parsedDate = new Date(Date.UTC(year, month - 1, day));
+  const isValidDate =
+    parsedDate.getUTCFullYear() === year &&
+    parsedDate.getUTCMonth() === month - 1 &&
+    parsedDate.getUTCDate() === day;
+
+  if (!isValidDate) {
+    return null;
+  }
+
+  const normalizedMonth = String(month).padStart(2, '0');
+  const normalizedDay = String(day).padStart(2, '0');
+  return `${dateMatch[1]}-${normalizedMonth}-${normalizedDay}`;
 };
 
 export default function App() {
@@ -261,6 +288,12 @@ export default function App() {
       return;
     }
 
+    const normalizedPurchaseDate = normalizeToIsoDate(purchaseDate);
+    if (!normalizedPurchaseDate) {
+      window.alert('Purchase date must use yyyy-mm-dd format.');
+      return;
+    }
+
     const parsedPrice = Number(purchasePrice);
     if (Number.isNaN(parsedPrice) || parsedPrice <= 0) {
       window.alert('Purchase price must be a positive number.');
@@ -274,7 +307,7 @@ export default function App() {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         shoeName: shoeName.trim(),
         size: size.trim(),
-        purchaseDate: purchaseDate.trim(),
+        purchaseDate: normalizedPurchaseDate,
         purchasePrice: parsedPrice,
         imageUrl,
       };
@@ -440,9 +473,10 @@ export default function App() {
       const importedEntries: SneakerEntry[] = [];
       for (const line of lines.slice(1)) {
         const [shoe, sizeValue, dateValue, priceValue, imageValue] = parseCsvLine(line);
+        const normalizedPurchaseDate = normalizeToIsoDate(dateValue);
         const parsedPrice = Number(priceValue);
 
-        if (!shoe || !sizeValue || !dateValue || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+        if (!shoe || !sizeValue || !normalizedPurchaseDate || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
           continue;
         }
 
@@ -450,7 +484,7 @@ export default function App() {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           shoeName: shoe,
           size: sizeValue,
-          purchaseDate: dateValue,
+          purchaseDate: normalizedPurchaseDate,
           purchasePrice: parsedPrice,
           imageUrl: imageValue || FALLBACK_IMAGE,
         });
