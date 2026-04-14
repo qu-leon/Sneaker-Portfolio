@@ -189,16 +189,6 @@ body {
   background: #f8f8f8;
 }
 
-.entryImageLink {
-  display: inline-flex;
-  border-radius: 10px;
-}
-
-.entryImageLink:focus-visible {
-  outline: 2px solid #344054;
-  outline-offset: 2px;
-}
-
 .shoeName {
   margin: 0 0 2px;
   font-size: 1rem;
