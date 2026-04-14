@@ -65,6 +65,11 @@ const normalizeToIsoDate = (dateValue: string): string | null => {
   return `${dateMatch[1]}-${normalizedMonth}-${normalizedDay}`;
 };
 
+const getStockxProductUrl = (shoeName: string) => {
+  const query = shoeName.trim();
+  return `https://stockx.com/search?s=${encodeURIComponent(query)}`;
+};
+
 export default function App() {
   const [shoeName, setShoeName] = useState('');
   const [size, setSize] = useState('10');
@@ -653,7 +658,16 @@ export default function App() {
                   onChange={() => onToggleEntrySelected(entry.id)}
                   aria-label={`Select ${entry.shoeName}`}
                 />
-                <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
+                <a
+                  className="entryImageLink"
+                  href={getStockxProductUrl(entry.shoeName)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Open ${entry.shoeName} on StockX`}
+                  title="Open on StockX"
+                >
+                  <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
+                </a>
                 <div className="entryContent">
                   <h3 className="shoeName">{entry.shoeName}</h3>
                   <p className="meta">Size: {entry.size}</p>
