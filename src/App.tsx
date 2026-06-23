@@ -114,6 +114,8 @@ export default function App() {
     [entries]
   );
 
+  const averagePurchasePrice = entries.length > 0 ? totalInvested / entries.length : 0;
+
   const selectedCount = selectedEntryIds.length;
   const areAllEntriesSelected = entries.length > 0 && selectedCount === entries.length;
   const isPartiallySelected = selectedCount > 0 && selectedCount < entries.length;
@@ -186,6 +188,13 @@ export default function App() {
       secondEntry.deletedAt.localeCompare(firstEntry.deletedAt)
     );
   }, [filteredDeletedEntries]);
+
+  const deletedPortfolioValue = useMemo(
+    () => deletedEntries.reduce((sum, entry) => sum + entry.purchasePrice, 0),
+    [deletedEntries]
+  );
+
+  const latestDeletedEntry = visibleDeletedEntries[0];
 
   const sizeOptions = useMemo(() => {
     const options: string[] = [];
@@ -669,7 +678,35 @@ export default function App() {
   return (
     <main className="page">
       <div className="container">
-        <h1 className="title">Sneaker Portfolio</h1>
+        <header className="pageHeader">
+          <div>
+            <p className="eyebrow">Collection Dashboard</p>
+            <h1 className="title">Sneaker Portfolio</h1>
+          </div>
+        </header>
+
+        <section className="statsGrid" aria-label="Sneaker portfolio summary">
+          <article className="statCard">
+            <span className="statLabel">Total Pairs</span>
+            <strong className="statValue">{entries.length}</strong>
+            <span className="statHint">Active collection</span>
+          </article>
+          <article className="statCard statCardAccent">
+            <span className="statLabel">Invested</span>
+            <strong className="statValue">${totalInvested.toFixed(2)}</strong>
+            <span className="statHint">Current portfolio</span>
+          </article>
+          <article className="statCard">
+            <span className="statLabel">Average Pair</span>
+            <strong className="statValue">${averagePurchasePrice.toFixed(2)}</strong>
+            <span className="statHint">Purchase price</span>
+          </article>
+          <article className="statCard">
+            <span className="statLabel">History</span>
+            <strong className="statValue">{deletedEntries.length}</strong>
+            <span className="statHint">${deletedPortfolioValue.toFixed(2)} archived</span>
+          </article>
+        </section>
 
         <div className="tabRow" role="tablist" aria-label="Sneaker portfolio views">
           <button
@@ -679,7 +716,8 @@ export default function App() {
             role="tab"
             aria-selected={activeTab === 'portfolio'}
           >
-            Portfolio ({entries.length})
+            Portfolio
+            <span className="tabCount">{entries.length}</span>
           </button>
           <button
             className={`tabButton ${activeTab === 'history' ? 'tabButtonActive' : ''}`}
@@ -688,49 +726,46 @@ export default function App() {
             role="tab"
             aria-selected={activeTab === 'history'}
           >
-            History ({deletedEntries.length})
+            History
+            <span className="tabCount">{deletedEntries.length}</span>
           </button>
         </div>
 
-        <input
-          className="input searchInput"
-          placeholder={
-            activeTab === 'portfolio'
-              ? 'Search portfolio by shoe (brand, model), size, or year purchased'
-              : 'Search history by shoe, size, purchase date, or deletion date'
-          }
-          value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value)}
-        />
+        <section className="toolbar" aria-label="Portfolio controls">
+          <div className="searchGroup">
+            <label className="fieldLabel" htmlFor="entry-search">
+              Search
+            </label>
+            <input
+              id="entry-search"
+              className="input searchInput"
+              placeholder={activeTab === 'portfolio' ? 'Shoe, size, or purchase year' : 'Shoe, size, or deletion date'}
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+          </div>
 
-        <p className="summary">
-          {activeTab === 'portfolio'
-            ? `${entries.length} pair${entries.length === 1 ? '' : 's'} • Total invested: $${totalInvested.toFixed(2)}`
-            : `${deletedEntries.length} deleted pair${deletedEntries.length === 1 ? '' : 's'}`}
-        </p>
-
-        {activeTab === 'portfolio' ? (
-          <div className="dataActionRow">
-            <button className="exportButton" type="button" onClick={onExportEntries}>
-              Export to Excel (.csv)
-            </button>
-            <button className="exportButton" type="button" onClick={onImportButtonClick}>
-              Import from Excel (.csv)
-            </button>
-            <select
-              className="sortFieldSelect"
-              value={sortOption}
-              onChange={(event) => setSortOption(event.target.value as SortOption)}
-              aria-label="Sort entries by"
-            >
-              <option value="date-desc">Sort: Date New-Old</option>
-              <option value="date-asc">Sort: Date Old-New</option>
-              <option value="name-asc">Sort: Name A-Z</option>
-              <option value="name-desc">Sort: Name Z-A</option>
-              <option value="price-desc">Sort: Price High-Low</option>
-              <option value="price-asc">Sort: Price Low-High</option>
-            </select>
-            <div className="bulkActionRow">
+          {activeTab === 'portfolio' ? (
+            <div className="toolbarActions">
+              <button className="secondaryButton" type="button" onClick={onExportEntries}>
+                Export CSV
+              </button>
+              <button className="secondaryButton" type="button" onClick={onImportButtonClick}>
+                Import CSV
+              </button>
+              <select
+                className="sortFieldSelect"
+                value={sortOption}
+                onChange={(event) => setSortOption(event.target.value as SortOption)}
+                aria-label="Sort entries by"
+              >
+                <option value="date-desc">Date New-Old</option>
+                <option value="date-asc">Date Old-New</option>
+                <option value="name-asc">Name A-Z</option>
+                <option value="name-desc">Name Z-A</option>
+                <option value="price-desc">Price High-Low</option>
+                <option value="price-asc">Price Low-High</option>
+              </select>
               <label className="selectAllControl">
                 <input
                   ref={selectAllEntriesRef}
@@ -752,40 +787,61 @@ export default function App() {
                 Delete Selected ({selectedCount})
               </button>
             </div>
-            <input
-              ref={importFileInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hiddenInput"
-              onChange={onImportEntries}
-            />
-          </div>
-        ) : null}
+          ) : (
+            <p className="historySummary">
+              Last deleted: {latestDeletedEntry ? formatDeletedAt(latestDeletedEntry.deletedAt) : 'None'}
+            </p>
+          )}
+
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hiddenInput"
+            onChange={onImportEntries}
+          />
+        </section>
 
         <section className="list">
           {activeTab === 'portfolio' ? (
             sortedEntries.length === 0 ? (
-              <p className="empty">
-                {entries.length === 0
-                  ? 'No shoes yet. Use the + button to add your first pair.'
-                  : 'No portfolio entries match your search.'}
-              </p>
+              <div className="emptyState">
+                <h2>{entries.length === 0 ? 'No Shoes Yet' : 'No Matches'}</h2>
+                <p>{entries.length === 0 ? 'Add your first pair to start the collection.' : 'Try a different search.'}</p>
+                {entries.length === 0 ? (
+                  <button className="button emptyActionButton" type="button" onClick={openAddEntryForm}>
+                    Add Sneaker
+                  </button>
+                ) : null}
+              </div>
             ) : (
               sortedEntries.map((entry) => (
-                <article className="card entry" key={entry.id}>
-                  <input
-                    type="checkbox"
-                    className="entryCheckbox"
-                    checked={selectedEntryIds.includes(entry.id)}
-                    onChange={() => onToggleEntrySelected(entry.id)}
-                    aria-label={`Select ${entry.shoeName}`}
-                  />
-                  <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
+                <article className="card entry sneakerCard" key={entry.id}>
+                  <div className="cardMedia">
+                    <input
+                      type="checkbox"
+                      className="entryCheckbox cardCheckbox"
+                      checked={selectedEntryIds.includes(entry.id)}
+                      onChange={() => onToggleEntrySelected(entry.id)}
+                      aria-label={`Select ${entry.shoeName}`}
+                    />
+                    <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
+                  </div>
                   <div className="entryContent">
-                    <h3 className="shoeName">{entry.shoeName}</h3>
-                    <p className="meta">Size: {entry.size}</p>
-                    <p className="meta">Date: {entry.purchaseDate}</p>
-                    <p className="price">Paid: ${entry.purchasePrice.toFixed(2)}</p>
+                    <div className="entryHeader">
+                      <h3 className="shoeName">{entry.shoeName}</h3>
+                      <p className="price">${entry.purchasePrice.toFixed(2)}</p>
+                    </div>
+                    <dl className="entryMetaGrid">
+                      <div>
+                        <dt>Size</dt>
+                        <dd>{entry.size}</dd>
+                      </div>
+                      <div>
+                        <dt>Purchased</dt>
+                        <dd>{entry.purchaseDate}</dd>
+                      </div>
+                    </dl>
                     <div className="entryActionRow">
                       <button
                         type="button"
@@ -807,21 +863,35 @@ export default function App() {
               ))
             )
           ) : visibleDeletedEntries.length === 0 ? (
-            <p className="empty">
-              {deletedEntries.length === 0
-                ? 'History is empty. Deleted entries will appear here.'
-                : 'No history entries match your search.'}
-            </p>
+            <div className="emptyState">
+              <h2>{deletedEntries.length === 0 ? 'History Is Empty' : 'No Matches'}</h2>
+              <p>{deletedEntries.length === 0 ? 'Deleted entries will land here.' : 'Try a different search.'}</p>
+            </div>
           ) : (
             visibleDeletedEntries.map((entry) => (
-              <article className="card entry historyEntry" key={entry.id}>
-                <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
+              <article className="card entry sneakerCard historyEntry" key={entry.id}>
+                <div className="cardMedia">
+                  <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
+                </div>
                 <div className="entryContent">
-                  <h3 className="shoeName">{entry.shoeName}</h3>
-                  <p className="meta">Size: {entry.size}</p>
-                  <p className="meta">Date: {entry.purchaseDate}</p>
-                  <p className="meta">Deleted: {formatDeletedAt(entry.deletedAt)}</p>
-                  <p className="price">Paid: ${entry.purchasePrice.toFixed(2)}</p>
+                  <div className="entryHeader">
+                    <h3 className="shoeName">{entry.shoeName}</h3>
+                    <p className="price">${entry.purchasePrice.toFixed(2)}</p>
+                  </div>
+                  <dl className="entryMetaGrid">
+                    <div>
+                      <dt>Size</dt>
+                      <dd>{entry.size}</dd>
+                    </div>
+                    <div>
+                      <dt>Purchased</dt>
+                      <dd>{entry.purchaseDate}</dd>
+                    </div>
+                    <div className="wideMetaItem">
+                      <dt>Deleted</dt>
+                      <dd>{formatDeletedAt(entry.deletedAt)}</dd>
+                    </div>
+                  </dl>
                   <div className="entryActionRow">
                     <button
                       type="button"
