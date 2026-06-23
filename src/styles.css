@@ -67,6 +67,28 @@ body {
   margin: 10px 2px;
 }
 
+.tabRow {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.tabButton {
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  padding: 9px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tabButtonActive {
+  border-color: #111827;
+  background: #111827;
+  color: #ffffff;
+}
+
 .searchInput {
   display: block;
   width: 100%;
@@ -164,6 +186,10 @@ body {
   gap: 10px;
   align-items: center;
   padding: 10px;
+}
+
+.historyEntry {
+  align-items: flex-start;
 }
 
 .entryCheckbox {
@@ -271,6 +297,15 @@ body {
 
   .dataActionRow {
     gap: 6px;
+  }
+
+  .tabRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tabButton {
+    padding: 10px 8px;
   }
 
   .exportButton,

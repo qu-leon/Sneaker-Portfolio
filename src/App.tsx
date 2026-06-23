@@ -9,6 +9,12 @@ type SneakerEntry = {
   imageUrl: string;
 };
 
+type DeletedSneakerEntry = SneakerEntry & {
+  deletedAt: string;
+};
+
+type ActiveTab = 'portfolio' | 'history';
+
 type SortOption =
   | 'date-desc'
   | 'date-asc'
@@ -18,6 +24,7 @@ type SortOption =
   | 'price-asc';
 
 const STORAGE_KEY = 'sneaker-portfolio-entries-v1';
+const HISTORY_STORAGE_KEY = 'sneaker-portfolio-history-v1';
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=60';
 const ISO_DATE_PATTERN = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
@@ -75,7 +82,9 @@ export default function App() {
   const [isEntryFormOpen, setIsEntryFormOpen] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
+  const [deletedEntries, setDeletedEntries] = useState<DeletedSneakerEntry[]>([]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('portfolio');
   const [isSaving, setIsSaving] = useState(false);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const floatingFormPanelRef = useRef<HTMLElement | null>(null);
@@ -88,6 +97,12 @@ export default function App() {
       if (raw) {
         const parsed = JSON.parse(raw) as SneakerEntry[];
         setEntries(parsed);
+      }
+
+      const rawHistory = localStorage.getItem(HISTORY_STORAGE_KEY);
+      if (rawHistory) {
+        const parsedHistory = JSON.parse(rawHistory) as DeletedSneakerEntry[];
+        setDeletedEntries(parsedHistory);
       }
     } catch {
       console.warn('Could not load saved entries');
@@ -117,6 +132,20 @@ export default function App() {
       return searchableText.includes(keyword);
     });
   }, [entries, searchTerm]);
+
+  const filteredDeletedEntries = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+    if (!keyword) {
+      return deletedEntries;
+    }
+
+    return deletedEntries.filter((entry) => {
+      const searchableText = [entry.shoeName, entry.size, entry.purchaseDate, entry.deletedAt]
+        .join(' ')
+        .toLowerCase();
+      return searchableText.includes(keyword);
+    });
+  }, [deletedEntries, searchTerm]);
 
   const sortedEntries = useMemo(() => {
     const entriesToSort = [...filteredEntries];
@@ -152,6 +181,12 @@ export default function App() {
     return entriesToSort;
   }, [filteredEntries, sortOption]);
 
+  const visibleDeletedEntries = useMemo(() => {
+    return [...filteredDeletedEntries].sort((firstEntry, secondEntry) =>
+      secondEntry.deletedAt.localeCompare(firstEntry.deletedAt)
+    );
+  }, [filteredDeletedEntries]);
+
   const sizeOptions = useMemo(() => {
     const options: string[] = [];
     for (let value = 3; value <= 15; value += 0.5) {
@@ -179,9 +214,39 @@ export default function App() {
     setEditingEntryId(null);
   };
 
+  const openPortfolioTab = () => {
+    setActiveTab('portfolio');
+  };
+
+  const openHistoryTab = () => {
+    setActiveTab('history');
+    setSelectedEntryIds([]);
+    closeEntryForm();
+  };
+
+  const formatDeletedAt = (deletedAt: string) => {
+    const parsedDate = new Date(deletedAt);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return 'Unknown';
+    }
+
+    return parsedDate.toLocaleString([], {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
   const persistEntries = (nextEntries: SneakerEntry[]) => {
     setEntries(nextEntries);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntries));
+  };
+
+  const persistDeletedEntries = (nextDeletedEntries: DeletedSneakerEntry[]) => {
+    setDeletedEntries(nextDeletedEntries);
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextDeletedEntries));
   };
 
   useEffect(() => {
@@ -384,13 +449,35 @@ export default function App() {
   };
 
   const onDeleteEntry = (entryId: string) => {
-    const shouldDelete = window.confirm('Are you sure you want to delete this entry?');
+    const shouldDelete = window.confirm('Move this entry to history?');
     if (!shouldDelete) {
       return;
     }
 
+    const entryToDelete = entries.find((entry) => entry.id === entryId);
+    if (!entryToDelete) {
+      return;
+    }
+
     const nextEntries = entries.filter((entry) => entry.id !== entryId);
+    const nextDeletedEntries = [
+      { ...entryToDelete, deletedAt: new Date().toISOString() },
+      ...deletedEntries,
+    ];
     persistEntries(nextEntries);
+    persistDeletedEntries(nextDeletedEntries);
+  };
+
+  const onPermanentlyDeleteEntry = (entryId: string) => {
+    const shouldDelete = window.confirm(
+      'Permanently delete this entry from history? This cannot be undone.'
+    );
+    if (!shouldDelete) {
+      return;
+    }
+
+    const nextDeletedEntries = deletedEntries.filter((entry) => entry.id !== entryId);
+    persistDeletedEntries(nextDeletedEntries);
   };
 
   const onToggleEntrySelected = (entryId: string) => {
@@ -409,8 +496,8 @@ export default function App() {
     }
 
     const confirmationMessage = areAllEntriesSelected
-      ? 'Are you sure you want to delete all entries?'
-      : `Are you sure you want to delete ${selectedEntryIds.length} selected entr${selectedEntryIds.length === 1 ? 'y' : 'ies'}?`;
+      ? 'Move all entries to history?'
+      : `Move ${selectedEntryIds.length} selected entr${selectedEntryIds.length === 1 ? 'y' : 'ies'} to history?`;
 
     const shouldDelete = window.confirm(confirmationMessage);
     if (!shouldDelete) {
@@ -418,8 +505,14 @@ export default function App() {
     }
 
     const selectedIdSet = new Set(selectedEntryIds);
+    const deletedAt = new Date().toISOString();
+    const entriesToDelete = entries
+      .filter((entry) => selectedIdSet.has(entry.id))
+      .map((entry) => ({ ...entry, deletedAt }));
     const nextEntries = entries.filter((entry) => !selectedIdSet.has(entry.id));
+    const nextDeletedEntries = [...entriesToDelete, ...deletedEntries];
     persistEntries(nextEntries);
+    persistDeletedEntries(nextDeletedEntries);
     setSelectedEntryIds([]);
   };
 
@@ -578,101 +671,164 @@ export default function App() {
       <div className="container">
         <h1 className="title">Sneaker Portfolio</h1>
 
+        <div className="tabRow" role="tablist" aria-label="Sneaker portfolio views">
+          <button
+            className={`tabButton ${activeTab === 'portfolio' ? 'tabButtonActive' : ''}`}
+            type="button"
+            onClick={openPortfolioTab}
+            role="tab"
+            aria-selected={activeTab === 'portfolio'}
+          >
+            Portfolio ({entries.length})
+          </button>
+          <button
+            className={`tabButton ${activeTab === 'history' ? 'tabButtonActive' : ''}`}
+            type="button"
+            onClick={openHistoryTab}
+            role="tab"
+            aria-selected={activeTab === 'history'}
+          >
+            History ({deletedEntries.length})
+          </button>
+        </div>
+
         <input
           className="input searchInput"
-          placeholder="Search portfolio by shoe (brand, model), size, or year purchased"
+          placeholder={
+            activeTab === 'portfolio'
+              ? 'Search portfolio by shoe (brand, model), size, or year purchased'
+              : 'Search history by shoe, size, purchase date, or deletion date'
+          }
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
         />
 
         <p className="summary">
-          {entries.length} pair{entries.length === 1 ? '' : 's'} • Total invested: ${totalInvested.toFixed(2)}
+          {activeTab === 'portfolio'
+            ? `${entries.length} pair${entries.length === 1 ? '' : 's'} • Total invested: $${totalInvested.toFixed(2)}`
+            : `${deletedEntries.length} deleted pair${deletedEntries.length === 1 ? '' : 's'}`}
         </p>
 
-        <div className="dataActionRow">
-          <button className="exportButton" type="button" onClick={onExportEntries}>
-            Export to Excel (.csv)
-          </button>
-          <button className="exportButton" type="button" onClick={onImportButtonClick}>
-            Import from Excel (.csv)
-          </button>
-          <select
-            className="sortFieldSelect"
-            value={sortOption}
-            onChange={(event) => setSortOption(event.target.value as SortOption)}
-            aria-label="Sort entries by"
-          >
-            <option value="date-desc">Sort: Date New-Old</option>
-            <option value="date-asc">Sort: Date Old-New</option>
-            <option value="name-asc">Sort: Name A-Z</option>
-            <option value="name-desc">Sort: Name Z-A</option>
-            <option value="price-desc">Sort: Price High-Low</option>
-            <option value="price-asc">Sort: Price Low-High</option>
-          </select>
-          <div className="bulkActionRow">
-            <label className="selectAllControl">
-              <input
-                ref={selectAllEntriesRef}
-                type="checkbox"
-                className="entryCheckbox"
-                checked={areAllEntriesSelected}
-                onChange={onToggleAllEntriesSelected}
-                disabled={entries.length === 0}
-                aria-label="Select all entries"
-              />
-              Select All
-            </label>
-            <button
-              className="deleteSelectedButton"
-              type="button"
-              onClick={onDeleteSelectedEntries}
-              disabled={selectedCount === 0}
-            >
-              Delete Selected ({selectedCount})
+        {activeTab === 'portfolio' ? (
+          <div className="dataActionRow">
+            <button className="exportButton" type="button" onClick={onExportEntries}>
+              Export to Excel (.csv)
             </button>
-          </div>
-          <input
-            ref={importFileInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hiddenInput"
-            onChange={onImportEntries}
-          />
-        </div>
-
-        <section className="list">
-          {sortedEntries.length === 0 ? (
-            <p className="empty">No shoes yet. Add your first pair above.</p>
-          ) : (
-            sortedEntries.map((entry) => (
-              <article className="card entry" key={entry.id}>
+            <button className="exportButton" type="button" onClick={onImportButtonClick}>
+              Import from Excel (.csv)
+            </button>
+            <select
+              className="sortFieldSelect"
+              value={sortOption}
+              onChange={(event) => setSortOption(event.target.value as SortOption)}
+              aria-label="Sort entries by"
+            >
+              <option value="date-desc">Sort: Date New-Old</option>
+              <option value="date-asc">Sort: Date Old-New</option>
+              <option value="name-asc">Sort: Name A-Z</option>
+              <option value="name-desc">Sort: Name Z-A</option>
+              <option value="price-desc">Sort: Price High-Low</option>
+              <option value="price-asc">Sort: Price Low-High</option>
+            </select>
+            <div className="bulkActionRow">
+              <label className="selectAllControl">
                 <input
+                  ref={selectAllEntriesRef}
                   type="checkbox"
                   className="entryCheckbox"
-                  checked={selectedEntryIds.includes(entry.id)}
-                  onChange={() => onToggleEntrySelected(entry.id)}
-                  aria-label={`Select ${entry.shoeName}`}
+                  checked={areAllEntriesSelected}
+                  onChange={onToggleAllEntriesSelected}
+                  disabled={entries.length === 0}
+                  aria-label="Select all entries"
                 />
+                Select All
+              </label>
+              <button
+                className="deleteSelectedButton"
+                type="button"
+                onClick={onDeleteSelectedEntries}
+                disabled={selectedCount === 0}
+              >
+                Delete Selected ({selectedCount})
+              </button>
+            </div>
+            <input
+              ref={importFileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hiddenInput"
+              onChange={onImportEntries}
+            />
+          </div>
+        ) : null}
+
+        <section className="list">
+          {activeTab === 'portfolio' ? (
+            sortedEntries.length === 0 ? (
+              <p className="empty">
+                {entries.length === 0
+                  ? 'No shoes yet. Use the + button to add your first pair.'
+                  : 'No portfolio entries match your search.'}
+              </p>
+            ) : (
+              sortedEntries.map((entry) => (
+                <article className="card entry" key={entry.id}>
+                  <input
+                    type="checkbox"
+                    className="entryCheckbox"
+                    checked={selectedEntryIds.includes(entry.id)}
+                    onChange={() => onToggleEntrySelected(entry.id)}
+                    aria-label={`Select ${entry.shoeName}`}
+                  />
+                  <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
+                  <div className="entryContent">
+                    <h3 className="shoeName">{entry.shoeName}</h3>
+                    <p className="meta">Size: {entry.size}</p>
+                    <p className="meta">Date: {entry.purchaseDate}</p>
+                    <p className="price">Paid: ${entry.purchasePrice.toFixed(2)}</p>
+                    <div className="entryActionRow">
+                      <button
+                        type="button"
+                        className="editButton"
+                        onClick={() => onEditEntry(entry)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="deleteButton"
+                        onClick={() => onDeleteEntry(entry.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))
+            )
+          ) : visibleDeletedEntries.length === 0 ? (
+            <p className="empty">
+              {deletedEntries.length === 0
+                ? 'History is empty. Deleted entries will appear here.'
+                : 'No history entries match your search.'}
+            </p>
+          ) : (
+            visibleDeletedEntries.map((entry) => (
+              <article className="card entry historyEntry" key={entry.id}>
                 <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
                 <div className="entryContent">
                   <h3 className="shoeName">{entry.shoeName}</h3>
                   <p className="meta">Size: {entry.size}</p>
                   <p className="meta">Date: {entry.purchaseDate}</p>
+                  <p className="meta">Deleted: {formatDeletedAt(entry.deletedAt)}</p>
                   <p className="price">Paid: ${entry.purchasePrice.toFixed(2)}</p>
                   <div className="entryActionRow">
                     <button
                       type="button"
-                      className="editButton"
-                      onClick={() => onEditEntry(entry)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
                       className="deleteButton"
-                      onClick={() => onDeleteEntry(entry.id)}
+                      onClick={() => onPermanentlyDeleteEntry(entry.id)}
                     >
-                      Delete
+                      Delete Permanently
                     </button>
                   </div>
                 </div>
@@ -683,22 +839,24 @@ export default function App() {
       </div>
 
       <div className="floatingControlGroup" aria-label="Page controls">
-        <button
-          ref={floatingAddButtonRef}
-          className="floatingAddButton"
-          type="button"
-          onClick={() => {
-            if (isEntryFormOpen) {
-              closeEntryForm();
-              return;
-            }
+        {activeTab === 'portfolio' ? (
+          <button
+            ref={floatingAddButtonRef}
+            className="floatingAddButton"
+            type="button"
+            onClick={() => {
+              if (isEntryFormOpen) {
+                closeEntryForm();
+                return;
+              }
 
-            openAddEntryForm();
-          }}
-          aria-label="Open sneaker entry form"
-        >
-          +
-        </button>
+              openAddEntryForm();
+            }}
+            aria-label="Open sneaker entry form"
+          >
+            +
+          </button>
+        ) : null}
 
         <div className="sideNavButtons" aria-label="Page navigation controls">
           <button className="sideNavButton" type="button" onClick={onScrollToTop}>
