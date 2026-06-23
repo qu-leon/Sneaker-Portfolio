@@ -607,7 +607,7 @@ select:focus-visible {
 
 @media (max-width: 640px) {
   .page {
-    padding: 20px 12px 92px;
+    padding: 18px 10px 96px;
   }
 
   .pageHeader {
@@ -652,23 +652,80 @@ select:focus-visible {
 
   .list {
     grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .sneakerCard {
+    grid-template-columns: 112px 1fr;
+    grid-template-rows: auto;
+  }
+
+  .cardMedia {
+    min-height: 100%;
+    aspect-ratio: auto;
+    border-right: 1px solid #e4e7ec;
+    border-bottom: 0;
+  }
+
+  .thumb {
+    width: 88px;
+    height: 88px;
+  }
+
+  .cardCheckbox {
+    top: 8px;
+    left: 8px;
+    width: 18px;
+    height: 18px;
+  }
+
+  .entryContent {
+    gap: 8px;
+    padding: 10px;
   }
 
   .entryHeader {
     grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .shoeName {
+    font-size: 0.96rem;
+  }
+
+  .entryMetaGrid {
+    gap: 6px;
+  }
+
+  .entryMetaGrid div {
+    padding: 6px;
+  }
+
+  .entryMetaGrid dt {
+    font-size: 0.7rem;
+  }
+
+  .entryMetaGrid dd {
+    font-size: 0.82rem;
   }
 
   .price {
     width: fit-content;
+    padding: 4px 7px;
+    font-size: 0.82rem;
   }
 
   .entryActionRow {
     justify-content: stretch;
+    gap: 6px;
   }
 
   .editButton,
   .deleteButton {
     flex: 1;
+    min-height: 34px;
+    padding: 6px 8px;
+    font-size: 0.78rem;
   }
 
   .floatingControlGroup {
@@ -676,9 +733,25 @@ select:focus-visible {
     bottom: 12px;
     top: auto;
     transform: none;
+    flex-direction: row;
+    align-items: flex-end;
   }
 
   .sideNavButtons {
-    display: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .sideNavButton {
+    min-width: 42px;
+    min-height: 42px;
+    padding: 6px 8px;
+  }
+
+  .floatingAddButton {
+    width: 52px;
+    height: 52px;
+    font-size: 1.8rem;
   }
 }
