@@ -156,7 +156,9 @@ select:focus-visible {
   background: rgba(255, 255, 255, 0.72);
 }
 
-.tabButtonActive {
+.tabButtonActive,
+.tabButtonActive:hover,
+.tabButtonActive:focus-visible {
   background: #101828;
   color: #ffffff;
   box-shadow: 0 5px 14px rgba(16, 24, 40, 0.18);
@@ -172,7 +174,9 @@ select:focus-visible {
   text-align: center;
 }
 
-.tabButtonActive .tabCount {
+.tabButtonActive .tabCount,
+.tabButtonActive:hover .tabCount,
+.tabButtonActive:focus-visible .tabCount {
   background: #14b8a6;
   color: #ffffff;
 }
