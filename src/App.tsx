@@ -85,6 +85,381 @@ const formatDateSearchTokens = (dateValue: string): string => {
   return `${longMonth} ${shortMonth} ${parsedDate.getFullYear()}`;
 };
 
+// ---- Dependency-free .xlsx (OOXML) read/write helpers ----
+
+const escapeXmlValue = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+
+const xlsxColumnLetter = (columnIndex: number): string => {
+  let letter = '';
+  let remaining = columnIndex;
+  while (remaining >= 0) {
+    letter = String.fromCharCode((remaining % 26) + 65) + letter;
+    remaining = Math.floor(remaining / 26) - 1;
+  }
+  return letter;
+};
+
+const buildWorksheetXml = (rows: (string | number)[][]): string => {
+  const rowsXml = rows
+    .map((cells, rowIndex) => {
+      const rowNumber = rowIndex + 1;
+      const cellsXml = cells
+        .map((value, columnIndex) => {
+          const reference = `${xlsxColumnLetter(columnIndex)}${rowNumber}`;
+          if (typeof value === 'number' && Number.isFinite(value)) {
+            return `<c r="${reference}"><v>${value}</v></c>`;
+          }
+          return `<c r="${reference}" t="inlineStr"><is><t xml:space="preserve">${escapeXmlValue(String(value))}</t></is></c>`;
+        })
+        .join('');
+      return `<row r="${rowNumber}">${cellsXml}</row>`;
+    })
+    .join('');
+
+  return (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    `<sheetData>${rowsXml}</sheetData></worksheet>`
+  );
+};
+
+const XLSX_CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+const xlsxCrc32 = (bytes: Uint8Array): number => {
+  let crc = 0xffffffff;
+  for (let index = 0; index < bytes.length; index += 1) {
+    crc = XLSX_CRC_TABLE[(crc ^ bytes[index]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+type ZipEntry = { name: string; data: Uint8Array };
+
+// Packs entries into an uncompressed (STORED) ZIP, a valid and portable .xlsx container.
+const zipStore = (entries: ZipEntry[]): Uint8Array => {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const nameBytes = encoder.encode(entry.name);
+    const crc = xlsxCrc32(entry.data);
+    const size = entry.data.length;
+
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(localHeader.buffer);
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, 20, true);
+    localView.setUint16(6, 0x0800, true);
+    localView.setUint16(8, 0, true);
+    localView.setUint16(10, 0, true);
+    localView.setUint16(12, 0, true);
+    localView.setUint32(14, crc, true);
+    localView.setUint32(18, size, true);
+    localView.setUint32(22, size, true);
+    localView.setUint16(26, nameBytes.length, true);
+    localView.setUint16(28, 0, true);
+    localHeader.set(nameBytes, 30);
+
+    localParts.push(localHeader, entry.data);
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(centralHeader.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(8, 0x0800, true);
+    centralView.setUint16(10, 0, true);
+    centralView.setUint16(12, 0, true);
+    centralView.setUint16(14, 0, true);
+    centralView.setUint32(16, crc, true);
+    centralView.setUint32(20, size, true);
+    centralView.setUint32(24, size, true);
+    centralView.setUint16(28, nameBytes.length, true);
+    centralView.setUint16(30, 0, true);
+    centralView.setUint16(32, 0, true);
+    centralView.setUint16(34, 0, true);
+    centralView.setUint16(36, 0, true);
+    centralView.setUint32(38, 0, true);
+    centralView.setUint32(42, offset, true);
+    centralHeader.set(nameBytes, 46);
+    centralParts.push(centralHeader);
+
+    offset += localHeader.length + entry.data.length;
+  }
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const centralOffset = offset;
+
+  const endRecord = new Uint8Array(22);
+  const endView = new DataView(endRecord.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(8, entries.length, true);
+  endView.setUint16(10, entries.length, true);
+  endView.setUint32(12, centralSize, true);
+  endView.setUint32(16, centralOffset, true);
+
+  const totalSize = centralOffset + centralSize + endRecord.length;
+  const output = new Uint8Array(totalSize);
+  let position = 0;
+  for (const part of [...localParts, ...centralParts, endRecord]) {
+    output.set(part, position);
+    position += part.length;
+  }
+  return output;
+};
+
+const buildXlsx = (sheets: { name: string; rows: (string | number)[][] }[]): Uint8Array => {
+  const encoder = new TextEncoder();
+
+  const contentTypes =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+    '<Default Extension="xml" ContentType="application/xml"/>' +
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+    sheets
+      .map(
+        (_, index) =>
+          `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
+      )
+      .join('') +
+    '</Types>';
+
+  const rootRels =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+    '</Relationships>';
+
+  const workbook =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+    sheets
+      .map((sheet, index) => `<sheet name="${escapeXmlValue(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`)
+      .join('') +
+    '</sheets></workbook>';
+
+  const workbookRels =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    sheets
+      .map(
+        (_, index) =>
+          `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`
+      )
+      .join('') +
+    '</Relationships>';
+
+  const entries: ZipEntry[] = [
+    { name: '[Content_Types].xml', data: encoder.encode(contentTypes) },
+    { name: '_rels/.rels', data: encoder.encode(rootRels) },
+    { name: 'xl/workbook.xml', data: encoder.encode(workbook) },
+    { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRels) },
+    ...sheets.map((sheet, index) => ({
+      name: `xl/worksheets/sheet${index + 1}.xml`,
+      data: encoder.encode(buildWorksheetXml(sheet.rows)),
+    })),
+  ];
+
+  return zipStore(entries);
+};
+
+const inflateRawDeflate = async (bytes: Uint8Array): Promise<Uint8Array> => {
+  const streamGlobal = globalThis as unknown as {
+    DecompressionStream?: new (format: string) => unknown;
+  };
+  if (!streamGlobal.DecompressionStream) {
+    throw new Error('This browser cannot read compressed Excel files.');
+  }
+  const decompressor = new streamGlobal.DecompressionStream('deflate-raw');
+  const stream = new Blob([bytes as unknown as BlobPart]).stream().pipeThrough(decompressor as any);
+  const buffer = await new Response(stream as any).arrayBuffer();
+  return new Uint8Array(buffer);
+};
+
+const parseZipEntries = (bytes: Uint8Array): Map<string, { method: number; data: Uint8Array }> => {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let endOffset = -1;
+  for (let index = bytes.length - 22; index >= 0; index -= 1) {
+    if (view.getUint32(index, true) === 0x06054b50) {
+      endOffset = index;
+      break;
+    }
+  }
+  if (endOffset < 0) {
+    throw new Error('Not a valid Excel file.');
+  }
+
+  const entryCount = view.getUint16(endOffset + 10, true);
+  let centralOffset = view.getUint32(endOffset + 16, true);
+  const decoder = new TextDecoder('utf-8');
+  const files = new Map<string, { method: number; data: Uint8Array }>();
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(centralOffset, true) !== 0x02014b50) {
+      break;
+    }
+    const method = view.getUint16(centralOffset + 10, true);
+    const compressedSize = view.getUint32(centralOffset + 20, true);
+    const nameLength = view.getUint16(centralOffset + 28, true);
+    const extraLength = view.getUint16(centralOffset + 30, true);
+    const commentLength = view.getUint16(centralOffset + 32, true);
+    const localOffset = view.getUint32(centralOffset + 42, true);
+    const name = decoder.decode(bytes.subarray(centralOffset + 46, centralOffset + 46 + nameLength));
+
+    const localNameLength = view.getUint16(localOffset + 26, true);
+    const localExtraLength = view.getUint16(localOffset + 28, true);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    files.set(name, { method, data: bytes.subarray(dataStart, dataStart + compressedSize) });
+
+    centralOffset += 46 + nameLength + extraLength + commentLength;
+  }
+
+  return files;
+};
+
+const readZipEntryText = async (
+  files: Map<string, { method: number; data: Uint8Array }>,
+  name: string
+): Promise<string | null> => {
+  const entry = files.get(name);
+  if (!entry) {
+    return null;
+  }
+  const bytes = entry.method === 0 ? entry.data : await inflateRawDeflate(entry.data);
+  return new TextDecoder('utf-8').decode(bytes);
+};
+
+const referenceToColumnIndex = (reference: string): number => {
+  const match = /^([A-Za-z]+)\d+$/.exec(reference);
+  if (!match) {
+    return -1;
+  }
+  const letters = match[1].toUpperCase();
+  let index = 0;
+  for (let position = 0; position < letters.length; position += 1) {
+    index = index * 26 + (letters.charCodeAt(position) - 64);
+  }
+  return index - 1;
+};
+
+const parseSheetRows = (sheetXml: string, sharedStrings: string[]): string[][] => {
+  const doc = new DOMParser().parseFromString(sheetXml, 'application/xml');
+  const rows = Array.from(doc.getElementsByTagName('row'));
+
+  return rows.map((row) => {
+    const rowValues: string[] = [];
+    const cells = Array.from(row.getElementsByTagName('c'));
+
+    cells.forEach((cell, cellIndex) => {
+      const cellType = cell.getAttribute('t');
+      let cellText = '';
+
+      if (cellType === 'inlineStr') {
+        cellText = Array.from(cell.getElementsByTagName('t'))
+          .map((node) => node.textContent ?? '')
+          .join('');
+      } else if (cellType === 's') {
+        const valueNode = cell.getElementsByTagName('v')[0];
+        const sharedIndex = valueNode ? Number(valueNode.textContent) : Number.NaN;
+        cellText =
+          Number.isInteger(sharedIndex) && sharedIndex >= 0 && sharedIndex < sharedStrings.length
+            ? sharedStrings[sharedIndex]
+            : '';
+      } else {
+        const valueNode = cell.getElementsByTagName('v')[0];
+        cellText = valueNode?.textContent ?? '';
+      }
+
+      const columnIndex = referenceToColumnIndex(cell.getAttribute('r') ?? '');
+      const targetIndex = columnIndex >= 0 ? columnIndex : cellIndex;
+      rowValues[targetIndex] = cellText.trim();
+    });
+
+    for (let index = 0; index < rowValues.length; index += 1) {
+      if (rowValues[index] === undefined) {
+        rowValues[index] = '';
+      }
+    }
+
+    return rowValues;
+  });
+};
+
+const parseXlsxWorkbook = async (bytes: Uint8Array): Promise<Map<string, string[][]>> => {
+  const files = parseZipEntries(bytes);
+  const workbookXml = await readZipEntryText(files, 'xl/workbook.xml');
+  const workbookRelsXml = await readZipEntryText(files, 'xl/_rels/workbook.xml.rels');
+  if (!workbookXml || !workbookRelsXml) {
+    throw new Error('Not a valid Excel file.');
+  }
+
+  const parser = new DOMParser();
+  const workbookDoc = parser.parseFromString(workbookXml, 'application/xml');
+  const relsDoc = parser.parseFromString(workbookRelsXml, 'application/xml');
+
+  const relationshipTargets = new Map<string, string>();
+  Array.from(relsDoc.getElementsByTagName('Relationship')).forEach((relationship) => {
+    const id = relationship.getAttribute('Id');
+    const target = relationship.getAttribute('Target');
+    if (id && target) {
+      relationshipTargets.set(id, target.replace(/^\/?xl\//, '').replace(/^\//, ''));
+    }
+  });
+
+  const sharedStrings: string[] = [];
+  const sharedStringsXml = await readZipEntryText(files, 'xl/sharedStrings.xml');
+  if (sharedStringsXml) {
+    const sharedDoc = parser.parseFromString(sharedStringsXml, 'application/xml');
+    Array.from(sharedDoc.getElementsByTagName('si')).forEach((si) => {
+      const text = Array.from(si.getElementsByTagName('t'))
+        .map((node) => node.textContent ?? '')
+        .join('');
+      sharedStrings.push(text);
+    });
+  }
+
+  const sheets = new Map<string, string[][]>();
+  const sheetElements = Array.from(workbookDoc.getElementsByTagName('sheet'));
+
+  for (const sheetElement of sheetElements) {
+    const sheetName = sheetElement.getAttribute('name') ?? '';
+    const relationshipId =
+      sheetElement.getAttribute('r:id') ||
+      sheetElement.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') ||
+      '';
+    const target = relationshipTargets.get(relationshipId);
+    if (!target) {
+      continue;
+    }
+    const sheetXml = await readZipEntryText(files, `xl/${target}`);
+    if (!sheetXml) {
+      continue;
+    }
+    sheets.set(sheetName, parseSheetRows(sheetXml, sharedStrings));
+  }
+
+  return sheets;
+};
+
 export default function App() {
   const [shoeName, setShoeName] = useState('');
   const [size, setSize] = useState('10');
@@ -621,75 +996,42 @@ export default function App() {
       return;
     }
 
-    const escapeXml = (value: string) =>
-      value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-
-    // Builds a SpreadsheetML 2003 worksheet so one file can hold multiple Excel tabs.
-    const buildWorksheet = (name: string, header: string[], rows: (string | number)[][]) => {
-      const buildCell = (value: string | number) => {
-        if (typeof value === 'number') {
-          return `<Cell><Data ss:Type="Number">${value}</Data></Cell>`;
-        }
-        return `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
-      };
-
-      const buildRow = (cells: (string | number)[]) =>
-        `<Row>${cells.map(buildCell).join('')}</Row>`;
-
-      const bodyRows = [header, ...rows].map(buildRow).join('');
-      return `<Worksheet ss:Name="${escapeXml(name)}"><Table>${bodyRows}</Table></Worksheet>`;
-    };
-
-    const portfolioSheet = buildWorksheet(
-      'Portfolio',
+    const portfolioRows: (string | number)[][] = [
       ['Shoe Name', 'Size', 'Purchase Date', 'Purchase Price', 'Image URL'],
-      entries.map((entry) => [
+      ...entries.map((entry) => [
         entry.shoeName,
         entry.size,
         entry.purchaseDate,
         Number(entry.purchasePrice.toFixed(2)),
         entry.imageUrl,
-      ])
-    );
+      ]),
+    ];
 
-    const historySheet = buildWorksheet(
-      'History',
+    const historyRows: (string | number)[][] = [
       ['Shoe Name', 'Size', 'Purchase Date', 'Purchase Price', 'Deleted At', 'Image URL'],
-      deletedEntries.map((entry) => [
+      ...deletedEntries.map((entry) => [
         entry.shoeName,
         entry.size,
         entry.purchaseDate,
         Number(entry.purchasePrice.toFixed(2)),
         formatDeletedAt(entry.deletedAt),
         entry.imageUrl,
-      ])
-    );
+      ]),
+    ];
 
-    const workbookXml =
-      '<?xml version="1.0"?>\n' +
-      '<?mso-application progid="Excel.Sheet"?>\n' +
-      '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"' +
-      ' xmlns:o="urn:schemas-microsoft-com:office:office"' +
-      ' xmlns:x="urn:schemas-microsoft-com:office:excel"' +
-      ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"' +
-      ' xmlns:html="http://www.w3.org/TR/REC-html40">' +
-      portfolioSheet +
-      historySheet +
-      '</Workbook>';
+    const workbook = buildXlsx([
+      { name: 'Portfolio', rows: portfolioRows },
+      { name: 'History', rows: historyRows },
+    ]);
 
-    const blob = new Blob([`\uFEFF${workbookXml}`], {
-      type: 'application/vnd.ms-excel;charset=utf-8;',
+    const blob = new Blob([workbook as unknown as BlobPart], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     const dateLabel = getTodayDate();
     anchor.href = url;
-    anchor.download = `sneaker-portfolio-${dateLabel}.xls`;
+    anchor.download = `sneaker-portfolio-${dateLabel}.xlsx`;
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
@@ -784,9 +1126,7 @@ export default function App() {
     return sheets;
   };
 
-  const importExcelWorkbook = (xmlText: string) => {
-    const sheets = parseExcelWorkbook(xmlText);
-
+  const applyImportedSheets = (sheets: Map<string, string[][]>) => {
     const portfolioRows = sheets.get('Portfolio') ?? [];
     const historyRows = sheets.get('History') ?? [];
 
@@ -832,6 +1172,14 @@ export default function App() {
       importedParts.push(`${importedDeletedEntries.length} history entr${importedDeletedEntries.length === 1 ? 'y' : 'ies'}`);
     }
     window.alert(`Imported ${importedParts.join(' and ')}.`);
+  };
+
+  const importExcelWorkbook = (xmlText: string) => {
+    applyImportedSheets(parseExcelWorkbook(xmlText));
+  };
+
+  const importXlsxWorkbook = async (bytes: Uint8Array) => {
+    applyImportedSheets(await parseXlsxWorkbook(bytes));
   };
 
   const importCsvEntries = (rawText: string) => {
@@ -882,17 +1230,24 @@ export default function App() {
     }
 
     try {
-      const rawText = await file.text();
-      const normalizedStart = rawText.replace(/^\uFEFF/, '').trimStart();
-      const isExcelWorkbook =
-        normalizedStart.startsWith('<?xml') ||
-        normalizedStart.startsWith('<Workbook') ||
-        normalizedStart.includes('urn:schemas-microsoft-com:office:spreadsheet');
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      const isZipFile = buffer.length > 3 && buffer[0] === 0x50 && buffer[1] === 0x4b;
 
-      if (isExcelWorkbook) {
-        importExcelWorkbook(rawText.replace(/^\uFEFF/, ''));
+      if (isZipFile) {
+        await importXlsxWorkbook(buffer);
       } else {
-        importCsvEntries(rawText);
+        const rawText = new TextDecoder('utf-8').decode(buffer).replace(/^\uFEFF/, '');
+        const normalizedStart = rawText.trimStart();
+        const isExcelXml =
+          normalizedStart.startsWith('<?xml') ||
+          normalizedStart.startsWith('<Workbook') ||
+          normalizedStart.includes('urn:schemas-microsoft-com:office:spreadsheet');
+
+        if (isExcelXml) {
+          importExcelWorkbook(rawText);
+        } else {
+          importCsvEntries(rawText);
+        }
       }
     } catch {
       window.alert('Could not import this file. Please try again.');
@@ -1054,7 +1409,7 @@ export default function App() {
           <input
             ref={importFileInputRef}
             type="file"
-            accept=".csv,.xls,.xml,text/csv,application/vnd.ms-excel"
+            accept=".csv,.xls,.xlsx,.xml,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="hiddenInput"
             onChange={onImportEntries}
           />
