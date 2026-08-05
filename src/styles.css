@@ -320,6 +320,11 @@ select:focus-visible {
   display: none;
 }
 
+.historyControls {
+  display: grid;
+  gap: 8px;
+}
+
 .historySummary {
   justify-self: end;
   margin: 0 2px 8px;

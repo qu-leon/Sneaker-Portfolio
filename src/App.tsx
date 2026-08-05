@@ -72,6 +72,19 @@ const normalizeToIsoDate = (dateValue: string): string | null => {
   return `${dateMatch[1]}-${normalizedMonth}-${normalizedDay}`;
 };
 
+// Expands a date into extra tokens (full/short month + year) so text search can match month names.
+const formatDateSearchTokens = (dateValue: string): string => {
+  const normalized = ISO_DATE_PATTERN.test(dateValue) ? `${dateValue}T00:00:00` : dateValue;
+  const parsedDate = new Date(normalized);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return '';
+  }
+
+  const longMonth = parsedDate.toLocaleString('en-US', { month: 'long' });
+  const shortMonth = parsedDate.toLocaleString('en-US', { month: 'short' });
+  return `${longMonth} ${shortMonth} ${parsedDate.getFullYear()}`;
+};
+
 export default function App() {
   const [shoeName, setShoeName] = useState('');
   const [size, setSize] = useState('10');
@@ -84,12 +97,14 @@ export default function App() {
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
   const [deletedEntries, setDeletedEntries] = useState<DeletedSneakerEntry[]>([]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('portfolio');
   const [isSaving, setIsSaving] = useState(false);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const floatingFormPanelRef = useRef<HTMLElement | null>(null);
   const floatingAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const selectAllEntriesRef = useRef<HTMLInputElement | null>(null);
+  const selectAllHistoryRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     try {
@@ -119,6 +134,11 @@ export default function App() {
   const selectedCount = selectedEntryIds.length;
   const areAllEntriesSelected = entries.length > 0 && selectedCount === entries.length;
   const isPartiallySelected = selectedCount > 0 && selectedCount < entries.length;
+  const selectedHistoryCount = selectedHistoryIds.length;
+  const areAllHistorySelected =
+    deletedEntries.length > 0 && selectedHistoryCount === deletedEntries.length;
+  const isHistoryPartiallySelected =
+    selectedHistoryCount > 0 && selectedHistoryCount < deletedEntries.length;
   const isEditingEntry = editingEntryId !== null;
 
   const filteredEntries = useMemo(() => {
@@ -142,7 +162,14 @@ export default function App() {
     }
 
     return deletedEntries.filter((entry) => {
-      const searchableText = [entry.shoeName, entry.size, entry.purchaseDate, entry.deletedAt]
+      const searchableText = [
+        entry.shoeName,
+        entry.size,
+        entry.purchaseDate,
+        formatDateSearchTokens(entry.purchaseDate),
+        entry.deletedAt,
+        formatDateSearchTokens(entry.deletedAt),
+      ]
         .join(' ')
         .toLowerCase();
       return searchableText.includes(keyword);
@@ -225,6 +252,7 @@ export default function App() {
 
   const openPortfolioTab = () => {
     setActiveTab('portfolio');
+    setSelectedHistoryIds([]);
   };
 
   const openHistoryTab = () => {
@@ -266,12 +294,27 @@ export default function App() {
   }, [entries]);
 
   useEffect(() => {
+    setSelectedHistoryIds((previousSelectedIds) => {
+      const validEntryIds = new Set(deletedEntries.map((entry) => entry.id));
+      return previousSelectedIds.filter((entryId) => validEntryIds.has(entryId));
+    });
+  }, [deletedEntries]);
+
+  useEffect(() => {
     if (!selectAllEntriesRef.current) {
       return;
     }
 
     selectAllEntriesRef.current.indeterminate = isPartiallySelected;
   }, [isPartiallySelected]);
+
+  useEffect(() => {
+    if (!selectAllHistoryRef.current) {
+      return;
+    }
+
+    selectAllHistoryRef.current.indeterminate = isHistoryPartiallySelected;
+  }, [isHistoryPartiallySelected]);
 
   useEffect(() => {
     if (!isEntryFormOpen) {
@@ -534,32 +577,119 @@ export default function App() {
     setSelectedEntryIds([]);
   };
 
+  const onToggleHistorySelected = (entryId: string) => {
+    setSelectedHistoryIds((previousSelectedIds) => {
+      if (previousSelectedIds.includes(entryId)) {
+        return previousSelectedIds.filter((id) => id !== entryId);
+      }
+      return [...previousSelectedIds, entryId];
+    });
+  };
+
+  const onDeleteSelectedHistoryEntries = () => {
+    if (selectedHistoryIds.length === 0) {
+      return;
+    }
+
+    const confirmationMessage = areAllHistorySelected
+      ? 'Permanently delete all history entries? This cannot be undone.'
+      : `Permanently delete ${selectedHistoryIds.length} selected entr${selectedHistoryIds.length === 1 ? 'y' : 'ies'} from history? This cannot be undone.`;
+
+    const shouldDelete = window.confirm(confirmationMessage);
+    if (!shouldDelete) {
+      return;
+    }
+
+    const selectedIdSet = new Set(selectedHistoryIds);
+    const nextDeletedEntries = deletedEntries.filter((entry) => !selectedIdSet.has(entry.id));
+    persistDeletedEntries(nextDeletedEntries);
+    setSelectedHistoryIds([]);
+  };
+
+  const onToggleAllHistorySelected = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      setSelectedHistoryIds(deletedEntries.map((entry) => entry.id));
+      return;
+    }
+
+    setSelectedHistoryIds([]);
+  };
+
   const onExportEntries = () => {
-    if (entries.length === 0) {
+    if (entries.length === 0 && deletedEntries.length === 0) {
       window.alert('No entries to export yet.');
       return;
     }
 
-    const escapeCsvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
-    const header = ['Shoe Name', 'Size', 'Purchase Date', 'Purchase Price', 'Image URL'];
-    const rows = entries.map((entry) => [
-      entry.shoeName,
-      entry.size,
-      entry.purchaseDate,
-      entry.purchasePrice.toFixed(2),
-      entry.imageUrl,
-    ]);
+    const escapeXml = (value: string) =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
 
-    const csvContent = [header, ...rows]
-      .map((row) => row.map((cell) => escapeCsvCell(String(cell))).join(','))
-      .join('\n');
+    // Builds a SpreadsheetML 2003 worksheet so one file can hold multiple Excel tabs.
+    const buildWorksheet = (name: string, header: string[], rows: (string | number)[][]) => {
+      const buildCell = (value: string | number) => {
+        if (typeof value === 'number') {
+          return `<Cell><Data ss:Type="Number">${value}</Data></Cell>`;
+        }
+        return `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
+      };
 
-    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+      const buildRow = (cells: (string | number)[]) =>
+        `<Row>${cells.map(buildCell).join('')}</Row>`;
+
+      const bodyRows = [header, ...rows].map(buildRow).join('');
+      return `<Worksheet ss:Name="${escapeXml(name)}"><Table>${bodyRows}</Table></Worksheet>`;
+    };
+
+    const portfolioSheet = buildWorksheet(
+      'Portfolio',
+      ['Shoe Name', 'Size', 'Purchase Date', 'Purchase Price', 'Image URL'],
+      entries.map((entry) => [
+        entry.shoeName,
+        entry.size,
+        entry.purchaseDate,
+        Number(entry.purchasePrice.toFixed(2)),
+        entry.imageUrl,
+      ])
+    );
+
+    const historySheet = buildWorksheet(
+      'History',
+      ['Shoe Name', 'Size', 'Purchase Date', 'Purchase Price', 'Deleted At', 'Image URL'],
+      deletedEntries.map((entry) => [
+        entry.shoeName,
+        entry.size,
+        entry.purchaseDate,
+        Number(entry.purchasePrice.toFixed(2)),
+        formatDeletedAt(entry.deletedAt),
+        entry.imageUrl,
+      ])
+    );
+
+    const workbookXml =
+      '<?xml version="1.0"?>\n' +
+      '<?mso-application progid="Excel.Sheet"?>\n' +
+      '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"' +
+      ' xmlns:o="urn:schemas-microsoft-com:office:office"' +
+      ' xmlns:x="urn:schemas-microsoft-com:office:excel"' +
+      ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"' +
+      ' xmlns:html="http://www.w3.org/TR/REC-html40">' +
+      portfolioSheet +
+      historySheet +
+      '</Workbook>';
+
+    const blob = new Blob([`\uFEFF${workbookXml}`], {
+      type: 'application/vnd.ms-excel;charset=utf-8;',
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     const dateLabel = getTodayDate();
     anchor.href = url;
-    anchor.download = `sneaker-portfolio-${dateLabel}.csv`;
+    anchor.download = `sneaker-portfolio-${dateLabel}.xls`;
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
@@ -602,6 +732,149 @@ export default function App() {
     importFileInputRef.current?.click();
   };
 
+  const makeEntryFromFields = (
+    shoe: string,
+    sizeValue: string,
+    dateValue: string,
+    priceValue: string,
+    imageValue: string
+  ): SneakerEntry | null => {
+    const normalizedPurchaseDate = normalizeToIsoDate(dateValue);
+    const parsedPrice = Number(priceValue);
+
+    if (!shoe || !sizeValue || !normalizedPurchaseDate || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+      return null;
+    }
+
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      shoeName: shoe,
+      size: sizeValue,
+      purchaseDate: normalizedPurchaseDate,
+      purchasePrice: parsedPrice,
+      imageUrl: imageValue || FALLBACK_IMAGE,
+    };
+  };
+
+  // Reads a SpreadsheetML 2003 workbook into a map of sheet name -> rows of cell text.
+  const parseExcelWorkbook = (xmlText: string): Map<string, string[][]> => {
+    const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length > 0) {
+      throw new Error('Malformed workbook');
+    }
+
+    const sheets = new Map<string, string[][]>();
+    const worksheets = Array.from(doc.getElementsByTagName('Worksheet'));
+
+    for (const worksheet of worksheets) {
+      const name = worksheet.getAttribute('ss:Name') ?? '';
+      const table = worksheet.getElementsByTagName('Table')[0];
+      const rows = table ? Array.from(table.getElementsByTagName('Row')) : [];
+
+      const parsedRows = rows.map((row) =>
+        Array.from(row.getElementsByTagName('Cell')).map((cell) => {
+          const data = cell.getElementsByTagName('Data')[0];
+          return data?.textContent?.trim() ?? '';
+        })
+      );
+
+      sheets.set(name, parsedRows);
+    }
+
+    return sheets;
+  };
+
+  const importExcelWorkbook = (xmlText: string) => {
+    const sheets = parseExcelWorkbook(xmlText);
+
+    const portfolioRows = sheets.get('Portfolio') ?? [];
+    const historyRows = sheets.get('History') ?? [];
+
+    const importedEntries: SneakerEntry[] = [];
+    for (const row of portfolioRows.slice(1)) {
+      const [shoe, sizeValue, dateValue, priceValue, imageValue] = row;
+      const entry = makeEntryFromFields(shoe, sizeValue, dateValue, priceValue, imageValue);
+      if (entry) {
+        importedEntries.push(entry);
+      }
+    }
+
+    const importedDeletedEntries: DeletedSneakerEntry[] = [];
+    for (const row of historyRows.slice(1)) {
+      const [shoe, sizeValue, dateValue, priceValue, deletedAtValue, imageValue] = row;
+      const entry = makeEntryFromFields(shoe, sizeValue, dateValue, priceValue, imageValue);
+      if (entry) {
+        const parsedDeletedAt = new Date(deletedAtValue);
+        const deletedAt = Number.isNaN(parsedDeletedAt.getTime())
+          ? new Date().toISOString()
+          : parsedDeletedAt.toISOString();
+        importedDeletedEntries.push({ ...entry, deletedAt });
+      }
+    }
+
+    if (importedEntries.length === 0 && importedDeletedEntries.length === 0) {
+      window.alert('No valid rows were found to import.');
+      return;
+    }
+
+    if (importedEntries.length > 0) {
+      persistEntries([...importedEntries, ...entries]);
+    }
+    if (importedDeletedEntries.length > 0) {
+      persistDeletedEntries([...importedDeletedEntries, ...deletedEntries]);
+    }
+
+    const importedParts: string[] = [];
+    if (importedEntries.length > 0) {
+      importedParts.push(`${importedEntries.length} portfolio entr${importedEntries.length === 1 ? 'y' : 'ies'}`);
+    }
+    if (importedDeletedEntries.length > 0) {
+      importedParts.push(`${importedDeletedEntries.length} history entr${importedDeletedEntries.length === 1 ? 'y' : 'ies'}`);
+    }
+    window.alert(`Imported ${importedParts.join(' and ')}.`);
+  };
+
+  const importCsvEntries = (rawText: string) => {
+    const normalizedText = rawText.replace(/^\uFEFF/, '');
+    const lines = normalizedText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (lines.length < 2) {
+      window.alert('The selected file has no data rows to import.');
+      return;
+    }
+
+    const header = parseCsvLine(lines[0]);
+    const expectedHeader = ['Shoe Name', 'Size', 'Purchase Date', 'Purchase Price', 'Image URL'];
+    const isExpectedHeader =
+      header.length === expectedHeader.length &&
+      header.every((column, index) => column === expectedHeader[index]);
+
+    if (!isExpectedHeader) {
+      window.alert('Invalid file format. Please import a file exported by this app.');
+      return;
+    }
+
+    const importedEntries: SneakerEntry[] = [];
+    for (const line of lines.slice(1)) {
+      const [shoe, sizeValue, dateValue, priceValue, imageValue] = parseCsvLine(line);
+      const entry = makeEntryFromFields(shoe, sizeValue, dateValue, priceValue, imageValue);
+      if (entry) {
+        importedEntries.push(entry);
+      }
+    }
+
+    if (importedEntries.length === 0) {
+      window.alert('No valid rows were found to import.');
+      return;
+    }
+
+    persistEntries([...importedEntries, ...entries]);
+    window.alert(`Imported ${importedEntries.length} entr${importedEntries.length === 1 ? 'y' : 'ies'}.`);
+  };
+
   const onImportEntries = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -610,56 +883,17 @@ export default function App() {
 
     try {
       const rawText = await file.text();
-      const normalizedText = rawText.replace(/^\uFEFF/, '');
-      const lines = normalizedText
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
+      const normalizedStart = rawText.replace(/^\uFEFF/, '').trimStart();
+      const isExcelWorkbook =
+        normalizedStart.startsWith('<?xml') ||
+        normalizedStart.startsWith('<Workbook') ||
+        normalizedStart.includes('urn:schemas-microsoft-com:office:spreadsheet');
 
-      if (lines.length < 2) {
-        window.alert('The selected file has no data rows to import.');
-        return;
+      if (isExcelWorkbook) {
+        importExcelWorkbook(rawText.replace(/^\uFEFF/, ''));
+      } else {
+        importCsvEntries(rawText);
       }
-
-      const header = parseCsvLine(lines[0]);
-      const expectedHeader = ['Shoe Name', 'Size', 'Purchase Date', 'Purchase Price', 'Image URL'];
-      const isExpectedHeader =
-        header.length === expectedHeader.length &&
-        header.every((column, index) => column === expectedHeader[index]);
-
-      if (!isExpectedHeader) {
-        window.alert('Invalid file format. Please import a file exported by this app.');
-        return;
-      }
-
-      const importedEntries: SneakerEntry[] = [];
-      for (const line of lines.slice(1)) {
-        const [shoe, sizeValue, dateValue, priceValue, imageValue] = parseCsvLine(line);
-        const normalizedPurchaseDate = normalizeToIsoDate(dateValue);
-        const parsedPrice = Number(priceValue);
-
-        if (!shoe || !sizeValue || !normalizedPurchaseDate || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
-          continue;
-        }
-
-        importedEntries.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          shoeName: shoe,
-          size: sizeValue,
-          purchaseDate: normalizedPurchaseDate,
-          purchasePrice: parsedPrice,
-          imageUrl: imageValue || FALLBACK_IMAGE,
-        });
-      }
-
-      if (importedEntries.length === 0) {
-        window.alert('No valid rows were found to import.');
-        return;
-      }
-
-      const nextEntries = [...importedEntries, ...entries];
-      persistEntries(nextEntries);
-      window.alert(`Imported ${importedEntries.length} entr${importedEntries.length === 1 ? 'y' : 'ies'}.`);
     } catch {
       window.alert('Could not import this file. Please try again.');
     } finally {
@@ -748,10 +982,10 @@ export default function App() {
           {activeTab === 'portfolio' ? (
             <div className="toolbarActions">
               <button className="secondaryButton" type="button" onClick={onExportEntries}>
-                Export CSV
+                Export to Excel
               </button>
               <button className="secondaryButton" type="button" onClick={onImportButtonClick}>
-                Import CSV
+                Import from Excel
               </button>
               <select
                 className="sortFieldSelect"
@@ -788,15 +1022,39 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <p className="historySummary">
-              Last deleted: {latestDeletedEntry ? formatDeletedAt(latestDeletedEntry.deletedAt) : 'None'}
-            </p>
+            <div className="historyControls">
+              <div className="toolbarActions">
+                <label className="selectAllControl">
+                  <input
+                    ref={selectAllHistoryRef}
+                    type="checkbox"
+                    className="entryCheckbox"
+                    checked={areAllHistorySelected}
+                    onChange={onToggleAllHistorySelected}
+                    disabled={deletedEntries.length === 0}
+                    aria-label="Select all history entries"
+                  />
+                  Select All
+                </label>
+                <button
+                  className="deleteSelectedButton"
+                  type="button"
+                  onClick={onDeleteSelectedHistoryEntries}
+                  disabled={selectedHistoryCount === 0}
+                >
+                  Delete Selected ({selectedHistoryCount})
+                </button>
+              </div>
+              <p className="historySummary">
+                Last deleted: {latestDeletedEntry ? formatDeletedAt(latestDeletedEntry.deletedAt) : 'None'}
+              </p>
+            </div>
           )}
 
           <input
             ref={importFileInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xls,.xml,text/csv,application/vnd.ms-excel"
             className="hiddenInput"
             onChange={onImportEntries}
           />
@@ -871,6 +1129,13 @@ export default function App() {
             visibleDeletedEntries.map((entry) => (
               <article className="card entry sneakerCard historyEntry" key={entry.id}>
                 <div className="cardMedia">
+                  <input
+                    type="checkbox"
+                    className="entryCheckbox cardCheckbox"
+                    checked={selectedHistoryIds.includes(entry.id)}
+                    onChange={() => onToggleHistorySelected(entry.id)}
+                    aria-label={`Select ${entry.shoeName}`}
+                  />
                   <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
                 </div>
                 <div className="entryContent">
