@@ -47,7 +47,7 @@ select:focus-visible {
 }
 
 .container {
-  width: min(1120px, 100%);
+  width: min(1680px, 100%);
   margin: 0 auto;
 }
 
@@ -333,7 +333,7 @@ select:focus-visible {
 
 .list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
 }
 
@@ -388,6 +388,27 @@ select:focus-visible {
   object-fit: contain;
   object-position: center;
   filter: drop-shadow(0 16px 18px rgba(16, 24, 40, 0.12));
+}
+
+@media (min-width: 641px) {
+  .cardMedia {
+    grid-template-rows: auto minmax(0, 1fr);
+    justify-items: center;
+    align-items: center;
+    gap: 6px;
+    padding: 12px;
+  }
+
+  .cardCheckbox {
+    position: static;
+    justify-self: start;
+  }
+
+  .thumb {
+    width: min(86%, 240px);
+    height: min(100%, 178px);
+    min-height: 0;
+  }
 }
 
 .entryContent {
