@@ -686,7 +686,7 @@ select:focus-visible {
   }
 
   .sneakerCard {
-    grid-template-columns: 112px 1fr;
+    grid-template-columns: 132px 1fr;
     grid-template-rows: auto;
   }
 
@@ -695,54 +695,62 @@ select:focus-visible {
     aspect-ratio: auto;
     border-right: 1px solid #e4e7ec;
     border-bottom: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    justify-items: center;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 0;
   }
 
   .thumb {
-    width: 88px;
-    height: 88px;
+    width: 106px;
+    height: 106px;
   }
 
   .cardCheckbox {
-    top: 8px;
-    left: 8px;
+    position: static;
+    justify-self: start;
+    margin-left: 8px;
     width: 18px;
     height: 18px;
   }
 
   .entryContent {
-    gap: 8px;
-    padding: 10px;
+    gap: 5px;
+    padding: 7px 8px;
   }
 
   .entryHeader {
     grid-template-columns: 1fr;
-    gap: 6px;
+    gap: 4px;
   }
 
   .shoeName {
-    font-size: 0.96rem;
+    font-size: 0.9rem;
+    line-height: 1.15;
   }
 
   .entryMetaGrid {
-    gap: 6px;
+    gap: 5px;
   }
 
   .entryMetaGrid div {
-    padding: 6px;
+    padding: 4px 5px;
   }
 
   .entryMetaGrid dt {
-    font-size: 0.7rem;
+    font-size: 0.64rem;
   }
 
   .entryMetaGrid dd {
-    font-size: 0.82rem;
+    margin-top: 1px;
+    font-size: 0.76rem;
   }
 
   .price {
     width: fit-content;
-    padding: 4px 7px;
-    font-size: 0.82rem;
+    padding: 2px 6px;
+    font-size: 0.76rem;
   }
 
   .entryActionRow {
@@ -753,9 +761,9 @@ select:focus-visible {
   .editButton,
   .deleteButton {
     flex: 1;
-    min-height: 34px;
-    padding: 6px 8px;
-    font-size: 0.78rem;
+    min-height: 28px;
+    padding: 4px 6px;
+    font-size: 0.72rem;
   }
 
   .floatingControlGroup {
