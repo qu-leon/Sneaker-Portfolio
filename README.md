@@ -4,7 +4,7 @@
 
 Sneaker Portfolio is a fullstack web application inspired by StockX portfolio tracking. It allows users to log sneaker purchases, view their collection in a clean card-based list, and quickly search or manage entries.
 
-On the frontend, the app is built with React + TypeScript (Vite) and includes a mobile-friendly UI with a floating action button, modal entry form, and keyboard-accessible interactions. Entry data is persisted in browser localStorage, with CSV import/export support for backup and transfer.
+On the frontend, the app is built with React + TypeScript (Vite) and includes a mobile-friendly UI with a floating action button, modal entry form, and keyboard-accessible interactions. Entry data is stored in Supabase behind email sign-in, so the same collection is available on every device, with Excel import/export support for backup and transfer.
 
 On the backend, a Node.js + Express API acts as a secure proxy to KicksDB for sneaker image lookup. This keeps API credentials off the client while providing reliable image retrieval and fallback behavior when no match is found.
 
@@ -13,7 +13,7 @@ StockX-style portfolio functionality:
 - Adds shoe entries with shoe name, size, purchase date, and purchase price
 - Automatically looks up a shoe image using KicksDB API
 - Shows all entries in a portfolio list (image on the left)
-- Saves entries locally in browser localStorage
+- Saves entries to the cloud (Supabase) so they sync across devices
 - Export your data to Excel to transfer to other local machines as well
 
 ## Technologies Used
@@ -21,6 +21,20 @@ StockX-style portfolio functionality:
 - React (Frontend)
 - Node.js
 - Express proxy (KicksDB API)
+- Supabase (Postgres + Auth)
+
+## Supabase setup
+
+1. Create a project at https://supabase.com.
+2. In **SQL Editor**, run [supabase/schema.sql](supabase/schema.sql) to create the tables and row-level security policies.
+3. In **Authentication > URL Configuration**, set **Site URL** to your GitHub Pages URL and add `http://localhost:5173/**` to **Redirect URLs**.
+4. From **Project Settings > API**, copy the project URL and anon/publishable key into a `.env.local` file:
+   ```bash
+   VITE_SUPABASE_URL=https://your-project.supabase.co
+   VITE_SUPABASE_ANON_KEY=your_anon_key
+   ```
+
+The anon key is safe to ship to the browser; row-level security restricts each user to their own rows. Entries saved by the older localStorage version are uploaded automatically the first time you sign in on that device (only if your cloud collection is still empty).
 
 ## Run locally
 
@@ -73,11 +87,13 @@ VITE_SNEAKS_API_BASE_URL=http://YOUR_HOST:4000 npm run dev
 
 The workflow in `.github/workflows/builddeploy.yaml` deploys on push to `main`.
 
-Before first deploy, add this repository secret:
+Before first deploy, add these repository secrets:
 
 - `VITE_SNEAKS_API_BASE_URL` = your hosted backend URL (for example, `https://your-api.example.com`)
+- `VITE_SUPABASE_URL` = your Supabase project URL
+- `VITE_SUPABASE_ANON_KEY` = your Supabase anon/publishable key
 
-This value is injected at build time so your Pages site can call your backend instead of `localhost`.
+These values are injected at build time.
 
 ## Deploy backend on Render
 

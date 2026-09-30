@@ -1,4 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import type { Session, SupabaseClient } from '@supabase/supabase-js';
+import { supabase } from './supabaseClient';
 
 type SneakerEntry = {
   id: string;
@@ -460,6 +462,164 @@ const parseXlsxWorkbook = async (bytes: Uint8Array): Promise<Map<string, string[
   return sheets;
 };
 
+type EntryRow = {
+  user_id: string;
+  id: string;
+  shoe_name: string;
+  size: string;
+  purchase_date: string;
+  purchase_price: number | string;
+  image_url: string;
+};
+
+type DeletedEntryRow = EntryRow & {
+  deleted_at: string;
+};
+
+type CloudData = {
+  entries: SneakerEntry[];
+  deletedEntries: DeletedSneakerEntry[];
+};
+
+const toEntryRow = (entry: SneakerEntry, userId: string): EntryRow => ({
+  user_id: userId,
+  id: entry.id,
+  shoe_name: entry.shoeName,
+  size: entry.size,
+  purchase_date: entry.purchaseDate,
+  purchase_price: entry.purchasePrice,
+  image_url: entry.imageUrl,
+});
+
+const toDeletedEntryRow = (entry: DeletedSneakerEntry, userId: string): DeletedEntryRow => ({
+  ...toEntryRow(entry, userId),
+  deleted_at: entry.deletedAt,
+});
+
+const fromEntryRow = (row: EntryRow): SneakerEntry => ({
+  id: row.id,
+  shoeName: row.shoe_name,
+  size: row.size,
+  purchaseDate: row.purchase_date,
+  purchasePrice: Number(row.purchase_price),
+  imageUrl: row.image_url,
+});
+
+const fromDeletedEntryRow = (row: DeletedEntryRow): DeletedSneakerEntry => ({
+  ...fromEntryRow(row),
+  deletedAt: row.deleted_at,
+});
+
+const fetchCloudData = async (client: SupabaseClient, userId: string): Promise<CloudData> => {
+  const [entriesResult, deletedResult] = await Promise.all([
+    client
+      .from('entries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false }),
+    client
+      .from('deleted_entries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('deleted_at', { ascending: false }),
+  ]);
+
+  if (entriesResult.error) {
+    throw entriesResult.error;
+  }
+  if (deletedResult.error) {
+    throw deletedResult.error;
+  }
+
+  return {
+    entries: (entriesResult.data as EntryRow[]).map(fromEntryRow),
+    deletedEntries: (deletedResult.data as DeletedEntryRow[]).map(fromDeletedEntryRow),
+  };
+};
+
+// Diffs by object identity: edited/new entries are new objects, untouched ones keep their reference.
+const syncTable = async <T extends { id: string }>(
+  client: SupabaseClient,
+  table: 'entries' | 'deleted_entries',
+  previousItems: T[],
+  nextItems: T[],
+  toRow: (item: T) => EntryRow
+) => {
+  const previousById = new Map(previousItems.map((item) => [item.id, item]));
+  const nextIds = new Set(nextItems.map((item) => item.id));
+  const changedRows = nextItems
+    .filter((item) => previousById.get(item.id) !== item)
+    .map(toRow);
+  const removedIds = previousItems
+    .filter((item) => !nextIds.has(item.id))
+    .map((item) => item.id);
+
+  if (removedIds.length > 0) {
+    const { error } = await client.from(table).delete().in('id', removedIds);
+    if (error) {
+      throw error;
+    }
+  }
+
+  if (changedRows.length > 0) {
+    const { error } = await client.from(table).upsert(changedRows, { onConflict: 'user_id,id' });
+    if (error) {
+      throw error;
+    }
+  }
+};
+
+const readLegacyLocalData = (): CloudData => {
+  const normalizeEntry = <T extends SneakerEntry>(entry: T): T | null => {
+    const purchaseDate = normalizeToIsoDate(String(entry?.purchaseDate ?? ''));
+    const isValid =
+      Boolean(entry?.id && entry.shoeName && entry.size && purchaseDate) &&
+      Number(entry.purchasePrice) > 0;
+    return isValid && purchaseDate ? { ...entry, purchaseDate } : null;
+  };
+
+  try {
+    const rawEntries = localStorage.getItem(STORAGE_KEY);
+    const rawHistory = localStorage.getItem(HISTORY_STORAGE_KEY);
+    const entries = rawEntries ? (JSON.parse(rawEntries) as SneakerEntry[]) : [];
+    const deletedEntries = rawHistory ? (JSON.parse(rawHistory) as DeletedSneakerEntry[]) : [];
+
+    return {
+      entries: entries.map(normalizeEntry).filter((entry): entry is SneakerEntry => entry !== null),
+      deletedEntries: deletedEntries
+        .map(normalizeEntry)
+        .filter((entry): entry is DeletedSneakerEntry => entry !== null)
+        .map((entry) =>
+          Number.isNaN(new Date(entry.deletedAt).getTime())
+            ? { ...entry, deletedAt: new Date().toISOString() }
+            : entry
+        ),
+    };
+  } catch {
+    return { entries: [], deletedEntries: [] };
+  }
+};
+
+// Uploads entries saved by the pre-cloud version of the app, then clears them locally.
+const migrateLegacyLocalData = async (
+  client: SupabaseClient,
+  userId: string
+): Promise<CloudData | null> => {
+  const legacyData = readLegacyLocalData();
+  if (legacyData.entries.length === 0 && legacyData.deletedEntries.length === 0) {
+    return null;
+  }
+
+  await syncTable(client, 'entries', [], legacyData.entries, (entry) => toEntryRow(entry, userId));
+  await syncTable(client, 'deleted_entries', [], legacyData.deletedEntries, (entry) =>
+    toDeletedEntryRow(entry, userId)
+  );
+
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(HISTORY_STORAGE_KEY);
+  return legacyData;
+};
+
 export default function App() {
   const [shoeName, setShoeName] = useState('');
   const [size, setSize] = useState('10');
@@ -480,24 +640,106 @@ export default function App() {
   const floatingAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const selectAllEntriesRef = useRef<HTMLInputElement | null>(null);
   const selectAllHistoryRef = useRef<HTMLInputElement | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isLoadingEntries, setIsLoadingEntries] = useState(false);
+  const [signInEmail, setSignInEmail] = useState('');
+  const [signInMessage, setSignInMessage] = useState('');
+  const [isSendingSignInLink, setIsSendingSignInLink] = useState(false);
+  // Last state handed to the cloud; persist* diffs against these instead of possibly stale closures.
+  const entriesRef = useRef<SneakerEntry[]>([]);
+  const deletedEntriesRef = useRef<DeletedSneakerEntry[]>([]);
+  const pendingSyncCountRef = useRef(0);
+  const userId = session?.user.id ?? null;
+
+  const applyCloudData = (data: CloudData) => {
+    entriesRef.current = data.entries;
+    deletedEntriesRef.current = data.deletedEntries;
+    setEntries(data.entries);
+    setDeletedEntries(data.deletedEntries);
+  };
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as SneakerEntry[];
-        setEntries(parsed);
+    if (!supabase) {
+      return;
+    }
+
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setIsAuthReady(true);
+    });
+
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || !userId) {
+      applyCloudData({ entries: [], deletedEntries: [] });
+      return;
+    }
+
+    const client = supabase;
+    let isCancelled = false;
+    setIsLoadingEntries(true);
+
+    const load = async () => {
+      try {
+        let cloudData = await fetchCloudData(client, userId);
+        if (cloudData.entries.length === 0 && cloudData.deletedEntries.length === 0) {
+          try {
+            cloudData = (await migrateLegacyLocalData(client, userId)) ?? cloudData;
+          } catch {
+            window.alert(
+              'Could not upload the entries saved on this device. They are kept locally and will be retried next time you sign in.'
+            );
+          }
+        }
+
+        if (!isCancelled) {
+          applyCloudData(cloudData);
+        }
+      } catch {
+        if (!isCancelled) {
+          window.alert('Could not load your collection. Please check your connection and refresh.');
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingEntries(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId]);
+
+  // Mobile browsers keep tabs alive, so refetch when returning to pick up edits from other devices.
+  useEffect(() => {
+    if (!supabase || !userId) {
+      return;
+    }
+
+    const client = supabase;
+    const onVisibilityChange = async () => {
+      if (document.visibilityState !== 'visible' || pendingSyncCountRef.current > 0) {
+        return;
       }
 
-      const rawHistory = localStorage.getItem(HISTORY_STORAGE_KEY);
-      if (rawHistory) {
-        const parsedHistory = JSON.parse(rawHistory) as DeletedSneakerEntry[];
-        setDeletedEntries(parsedHistory);
+      try {
+        const cloudData = await fetchCloudData(client, userId);
+        if (pendingSyncCountRef.current === 0) {
+          applyCloudData(cloudData);
+        }
+      } catch {
+        // Keep showing current data; the next visibility change will retry.
       }
-    } catch {
-      console.warn('Could not load saved entries');
-    }
-  }, []);
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [userId]);
 
   const totalInvested = useMemo(
     () => entries.reduce((sum, entry) => sum + entry.purchasePrice, 0),
@@ -651,14 +893,75 @@ export default function App() {
     });
   };
 
+  const runCloudSync = (task: (client: SupabaseClient, currentUserId: string) => Promise<void>) => {
+    if (!supabase || !userId) {
+      return;
+    }
+
+    const client = supabase;
+    const currentUserId = userId;
+    pendingSyncCountRef.current += 1;
+
+    task(client, currentUserId)
+      .catch(async () => {
+        window.alert('Could not save your changes to the cloud. Reloading your last saved data.');
+        try {
+          applyCloudData(await fetchCloudData(client, currentUserId));
+        } catch {
+          // Loading failed too; leave the current view so the user can retry.
+        }
+      })
+      .finally(() => {
+        pendingSyncCountRef.current -= 1;
+      });
+  };
+
   const persistEntries = (nextEntries: SneakerEntry[]) => {
+    const previousEntries = entriesRef.current;
+    entriesRef.current = nextEntries;
     setEntries(nextEntries);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntries));
+    runCloudSync((client, currentUserId) =>
+      syncTable(client, 'entries', previousEntries, nextEntries, (entry) =>
+        toEntryRow(entry, currentUserId)
+      )
+    );
   };
 
   const persistDeletedEntries = (nextDeletedEntries: DeletedSneakerEntry[]) => {
+    const previousDeletedEntries = deletedEntriesRef.current;
+    deletedEntriesRef.current = nextDeletedEntries;
     setDeletedEntries(nextDeletedEntries);
-    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextDeletedEntries));
+    runCloudSync((client, currentUserId) =>
+      syncTable(client, 'deleted_entries', previousDeletedEntries, nextDeletedEntries, (entry) =>
+        toDeletedEntryRow(entry, currentUserId)
+      )
+    );
+  };
+
+  const onSendSignInLink = async (event: FormEvent) => {
+    event.preventDefault();
+    const email = signInEmail.trim();
+    if (!supabase || !email) {
+      return;
+    }
+
+    setIsSendingSignInLink(true);
+    setSignInMessage('');
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}${window.location.pathname}` },
+    });
+    setIsSendingSignInLink(false);
+    setSignInMessage(
+      error ? `Could not send the sign-in link: ${error.message}` : `Check ${email} for your sign-in link.`
+    );
+  };
+
+  const onSignOut = async () => {
+    await supabase?.auth.signOut();
+    setSelectedEntryIds([]);
+    setSelectedHistoryIds([]);
+    setIsEntryFormOpen(false);
   };
 
   useEffect(() => {
@@ -1264,6 +1567,51 @@ export default function App() {
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   };
 
+  if (!supabase || !isAuthReady || !session) {
+    return (
+      <main className="page">
+        <section className="authPanel card" aria-label="Sign in">
+          <p className="eyebrow">Collection Dashboard</p>
+          <h1 className="title">Sneaker Portfolio</h1>
+          {!supabase ? (
+            <p className="authMessage">
+              Cloud sync is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then
+              restart the app.
+            </p>
+          ) : !isAuthReady ? (
+            <p className="authMessage">Loading...</p>
+          ) : (
+            <form className="authForm" onSubmit={onSendSignInLink}>
+              <p className="authMessage">
+                Sign in with your email to access your collection on any device.
+              </p>
+              <label className="fieldLabel" htmlFor="sign-in-email">
+                Email
+              </label>
+              <input
+                id="sign-in-email"
+                className="input"
+                type="email"
+                autoComplete="email"
+                required
+                value={signInEmail}
+                onChange={(event) => setSignInEmail(event.target.value)}
+              />
+              <button className="button" type="submit" disabled={isSendingSignInLink}>
+                {isSendingSignInLink ? 'Sending...' : 'Email me a sign-in link'}
+              </button>
+              {signInMessage ? (
+                <p className="authMessage" role="status">
+                  {signInMessage}
+                </p>
+              ) : null}
+            </form>
+          )}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="page">
       <div className="container">
@@ -1271,6 +1619,12 @@ export default function App() {
           <div>
             <p className="eyebrow">Collection Dashboard</p>
             <h1 className="title">Sneaker Portfolio</h1>
+          </div>
+          <div className="accountControls">
+            <span className="accountEmail">{session.user.email}</span>
+            <button className="secondaryButton" type="button" onClick={onSignOut}>
+              Sign out
+            </button>
           </div>
         </header>
 
@@ -1416,7 +1770,11 @@ export default function App() {
         </section>
 
         <section className="list">
-          {activeTab === 'portfolio' ? (
+          {isLoadingEntries ? (
+            <div className="emptyState">
+              <p>Loading your collection...</p>
+            </div>
+          ) : activeTab === 'portfolio' ? (
             sortedEntries.length === 0 ? (
               <div className="emptyState">
                 <h2>{entries.length === 0 ? 'No Shoes Yet' : 'No Matches'}</h2>

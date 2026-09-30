@@ -534,6 +534,42 @@ select:focus-visible {
   margin-top: 4px;
 }
 
+.authPanel {
+  width: min(420px, 100%);
+  margin: 12vh auto 0;
+  padding: 28px 24px;
+  display: grid;
+  gap: 8px;
+}
+
+.authPanel .title {
+  margin-bottom: 8px;
+}
+
+.authForm {
+  display: grid;
+  gap: 10px;
+}
+
+.authMessage {
+  margin: 0;
+  color: #475467;
+}
+
+.accountControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.accountEmail {
+  color: #667085;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
 .form {
   padding: 12px;
   display: grid;
