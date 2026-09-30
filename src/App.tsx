@@ -645,7 +645,9 @@ export default function App() {
   const [isLoadingEntries, setIsLoadingEntries] = useState(false);
   const [signInEmail, setSignInEmail] = useState('');
   const [signInMessage, setSignInMessage] = useState('');
-  const [isSendingSignInLink, setIsSendingSignInLink] = useState(false);
+  const [isSubmittingSignIn, setIsSubmittingSignIn] = useState(false);
+  const [signInPassword, setSignInPassword] = useState('');
+  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
   // Last state handed to the cloud; persist* diffs against these instead of possibly stale closures.
   const entriesRef = useRef<SneakerEntry[]>([]);
   const deletedEntriesRef = useRef<DeletedSneakerEntry[]>([]);
@@ -938,23 +940,37 @@ export default function App() {
     );
   };
 
-  const onSendSignInLink = async (event: FormEvent) => {
+  const onSubmitAuthForm = async (event: FormEvent) => {
     event.preventDefault();
     const email = signInEmail.trim();
-    if (!supabase || !email) {
+    if (!supabase || !email || !signInPassword) {
       return;
     }
 
-    setIsSendingSignInLink(true);
+    setIsSubmittingSignIn(true);
     setSignInMessage('');
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}${window.location.pathname}` },
-    });
-    setIsSendingSignInLink(false);
-    setSignInMessage(
-      error ? `Could not send the sign-in link: ${error.message}` : `Check ${email} for your sign-in link.`
-    );
+    const credentials = { email, password: signInPassword };
+    const { data, error } =
+      authMode === 'sign-up'
+        ? await supabase.auth.signUp(credentials)
+        : await supabase.auth.signInWithPassword(credentials);
+    setIsSubmittingSignIn(false);
+
+    if (error) {
+      setSignInMessage(error.message);
+      return;
+    }
+
+    setSignInPassword('');
+    if (!data.session) {
+      setSignInMessage('Account created. Confirm your email, then sign in.');
+      setAuthMode('sign-in');
+    }
+  };
+
+  const onToggleAuthMode = () => {
+    setAuthMode((previousMode) => (previousMode === 'sign-in' ? 'sign-up' : 'sign-in'));
+    setSignInMessage('');
   };
 
   const onSignOut = async () => {
@@ -1581,9 +1597,11 @@ export default function App() {
           ) : !isAuthReady ? (
             <p className="authMessage">Loading...</p>
           ) : (
-            <form className="authForm" onSubmit={onSendSignInLink}>
+            <form className="authForm" onSubmit={onSubmitAuthForm}>
               <p className="authMessage">
-                Sign in with your email to access your collection on any device.
+                {authMode === 'sign-in'
+                  ? 'Sign in to access your collection on any device.'
+                  : 'Create an account to sync your collection across devices.'}
               </p>
               <label className="fieldLabel" htmlFor="sign-in-email">
                 Email
@@ -1597,8 +1615,28 @@ export default function App() {
                 value={signInEmail}
                 onChange={(event) => setSignInEmail(event.target.value)}
               />
-              <button className="button" type="submit" disabled={isSendingSignInLink}>
-                {isSendingSignInLink ? 'Sending...' : 'Email me a sign-in link'}
+              <label className="fieldLabel" htmlFor="sign-in-password">
+                Password
+              </label>
+              <input
+                id="sign-in-password"
+                className="input"
+                type="password"
+                autoComplete={authMode === 'sign-in' ? 'current-password' : 'new-password'}
+                minLength={6}
+                required
+                value={signInPassword}
+                onChange={(event) => setSignInPassword(event.target.value)}
+              />
+              <button className="button" type="submit" disabled={isSubmittingSignIn}>
+                {isSubmittingSignIn
+                  ? 'Please wait...'
+                  : authMode === 'sign-in'
+                    ? 'Sign in'
+                    : 'Create account'}
+              </button>
+              <button className="secondaryButton" type="button" onClick={onToggleAuthMode}>
+                {authMode === 'sign-in' ? 'New here? Create an account' : 'Have an account? Sign in'}
               </button>
               {signInMessage ? (
                 <p className="authMessage" role="status">

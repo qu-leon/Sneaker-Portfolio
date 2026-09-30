@@ -27,7 +27,7 @@ StockX-style portfolio functionality:
 
 1. Create a project at https://supabase.com.
 2. In **SQL Editor**, run [supabase/schema.sql](supabase/schema.sql) to create the tables and row-level security policies.
-3. In **Authentication > URL Configuration**, set **Site URL** to your GitHub Pages URL and add `http://localhost:5173/**` to **Redirect URLs**.
+3. In **Authentication > Sign In / Providers > Email**, turn off **Confirm email** so accounts work without Supabase sending any email. After creating your account in the app, you can also turn off **Allow new users to sign up** to keep the app private.
 4. From **Project Settings > API**, copy the project URL and anon/publishable key into a `.env.local` file:
    ```bash
    VITE_SUPABASE_URL=https://your-project.supabase.co
