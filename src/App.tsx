@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
-import { supabase } from './supabaseClient';
+import { authRedirectParams, supabase } from './supabaseClient';
 
 type SneakerEntry = {
   id: string;
@@ -644,10 +644,15 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isLoadingEntries, setIsLoadingEntries] = useState(false);
   const [signInEmail, setSignInEmail] = useState('');
-  const [signInMessage, setSignInMessage] = useState('');
+  const [signInMessage, setSignInMessage] = useState(
+    authRedirectParams.get('error_description') ?? ''
+  );
   const [isSubmittingSignIn, setIsSubmittingSignIn] = useState(false);
   const [signInPassword, setSignInPassword] = useState('');
-  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [authMode, setAuthMode] = useState<
+    'sign-in' | 'sign-up' | 'forgot-password' | 'reset-password'
+  >(authRedirectParams.get('type') === 'recovery' ? 'reset-password' : 'sign-in');
   // Last state handed to the cloud; persist* diffs against these instead of possibly stale closures.
   const entriesRef = useRef<SneakerEntry[]>([]);
   const deletedEntriesRef = useRef<DeletedSneakerEntry[]>([]);
@@ -666,9 +671,14 @@ export default function App() {
       return;
     }
 
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
       setIsAuthReady(true);
+      if (event === 'PASSWORD_RECOVERY') {
+        setAuthMode('reset-password');
+      } else if (!nextSession) {
+        setAuthMode((previousMode) => (previousMode === 'reset-password' ? 'sign-in' : previousMode));
+      }
     });
 
     return () => data.subscription.unsubscribe();
@@ -971,6 +981,61 @@ export default function App() {
   const onToggleAuthMode = () => {
     setAuthMode((previousMode) => (previousMode === 'sign-in' ? 'sign-up' : 'sign-in'));
     setSignInMessage('');
+  };
+
+  const onShowForgotPassword = () => {
+    setAuthMode('forgot-password');
+    setSignInPassword('');
+    setSignInMessage('');
+  };
+
+  const onSendPasswordReset = async (event: FormEvent) => {
+    event.preventDefault();
+    const email = signInEmail.trim();
+    if (!supabase || !email) {
+      return;
+    }
+
+    setIsSubmittingSignIn(true);
+    setSignInMessage('');
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}${window.location.pathname}`,
+    });
+    setIsSubmittingSignIn(false);
+
+    // Same message either way so the form doesn't reveal which emails have accounts.
+    setSignInMessage(
+      error && error.status === 429
+        ? 'Too many reset requests. Please wait a bit and try again.'
+        : `If an account exists for ${email}, a password reset link is on its way.`
+    );
+  };
+
+  const onSubmitNewPassword = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!supabase) {
+      return;
+    }
+
+    if (signInPassword !== confirmPassword) {
+      setSignInMessage('Passwords do not match.');
+      return;
+    }
+
+    setIsSubmittingSignIn(true);
+    setSignInMessage('');
+    const { error } = await supabase.auth.updateUser({ password: signInPassword });
+    setIsSubmittingSignIn(false);
+
+    if (error) {
+      setSignInMessage(error.message);
+      return;
+    }
+
+    setSignInPassword('');
+    setConfirmPassword('');
+    setAuthMode('sign-in');
+    window.alert('Your password has been updated.');
   };
 
   const onSignOut = async () => {
@@ -1583,7 +1648,13 @@ export default function App() {
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   };
 
-  if (!supabase || !isAuthReady || !session) {
+  if (!supabase || !isAuthReady || !session || authMode === 'reset-password') {
+    const signInStatus = signInMessage ? (
+      <p className="authMessage" role="status">
+        {signInMessage}
+      </p>
+    ) : null;
+
     return (
       <main className="page">
         <section className="authPanel card" aria-label="Sign in">
@@ -1596,6 +1667,72 @@ export default function App() {
             </p>
           ) : !isAuthReady ? (
             <p className="authMessage">Loading...</p>
+          ) : authMode === 'reset-password' && session ? (
+            <form className="authForm" onSubmit={onSubmitNewPassword}>
+              <p className="authMessage">Choose a new password for {session.user.email}.</p>
+              <label className="fieldLabel" htmlFor="new-password">
+                New password
+              </label>
+              <input
+                id="new-password"
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                minLength={6}
+                required
+                value={signInPassword}
+                onChange={(event) => setSignInPassword(event.target.value)}
+              />
+              <label className="fieldLabel" htmlFor="confirm-password">
+                Confirm new password
+              </label>
+              <input
+                id="confirm-password"
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                minLength={6}
+                required
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+              />
+              <button className="button" type="submit" disabled={isSubmittingSignIn}>
+                {isSubmittingSignIn ? 'Please wait...' : 'Update password'}
+              </button>
+              {signInStatus}
+            </form>
+          ) : authMode === 'forgot-password' ? (
+            <form className="authForm" onSubmit={onSendPasswordReset}>
+              <p className="authMessage">
+                Enter your account email and we'll send you a link to reset your password.
+              </p>
+              <label className="fieldLabel" htmlFor="reset-email">
+                Email
+              </label>
+              <input
+                id="reset-email"
+                className="input"
+                type="email"
+                autoComplete="email"
+                required
+                value={signInEmail}
+                onChange={(event) => setSignInEmail(event.target.value)}
+              />
+              <button className="button" type="submit" disabled={isSubmittingSignIn}>
+                {isSubmittingSignIn ? 'Please wait...' : 'Send reset link'}
+              </button>
+              <button
+                className="secondaryButton"
+                type="button"
+                onClick={() => {
+                  setAuthMode('sign-in');
+                  setSignInMessage('');
+                }}
+              >
+                Back to sign in
+              </button>
+              {signInStatus}
+            </form>
           ) : (
             <form className="authForm" onSubmit={onSubmitAuthForm}>
               <p className="authMessage">
@@ -1628,6 +1765,11 @@ export default function App() {
                 value={signInPassword}
                 onChange={(event) => setSignInPassword(event.target.value)}
               />
+              {authMode === 'sign-in' ? (
+                <button className="linkButton" type="button" onClick={onShowForgotPassword}>
+                  Forgot password?
+                </button>
+              ) : null}
               <button className="button" type="submit" disabled={isSubmittingSignIn}>
                 {isSubmittingSignIn
                   ? 'Please wait...'
@@ -1638,11 +1780,7 @@ export default function App() {
               <button className="secondaryButton" type="button" onClick={onToggleAuthMode}>
                 {authMode === 'sign-in' ? 'New here? Create an account' : 'Have an account? Sign in'}
               </button>
-              {signInMessage ? (
-                <p className="authMessage" role="status">
-                  {signInMessage}
-                </p>
-              ) : null}
+              {signInStatus}
             </form>
           )}
         </section>

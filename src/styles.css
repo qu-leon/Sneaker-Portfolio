@@ -556,6 +556,21 @@ select:focus-visible {
   color: #475467;
 }
 
+.linkButton {
+  justify-self: end;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #0f766e;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
 .accountControls {
   display: flex;
   align-items: center;
