@@ -26,15 +26,15 @@ const getQueryFallbackImage = (query) => {
   return `https://source.unsplash.com/600x600/?${encodeURIComponent(query)},sneaker`;
 };
 
-const getKicksDbTopProduct = async (query) => {
+const searchKicksDbProducts = async (query, limit) => {
   if (!KICKSDB_API_KEY) {
-    return null;
+    return [];
   }
 
   try {
     const url = new URL('/v3/stockx/products', KICKSDB_BASE_URL);
     url.searchParams.set('query', query);
-    url.searchParams.set('limit', '1');
+    url.searchParams.set('limit', String(limit));
     url.searchParams.set('market', KICKSDB_MARKET);
     url.searchParams.set('currency', KICKSDB_CURRENCY);
 
@@ -48,14 +48,19 @@ const getKicksDbTopProduct = async (query) => {
     });
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      return null;
+      return [];
     }
 
     const payload = await response.body.json();
-    return Array.isArray(payload?.data) && payload.data.length > 0 ? payload.data[0] : null;
+    return Array.isArray(payload?.data) ? payload.data : [];
   } catch {
-    return null;
+    return [];
   }
+};
+
+const getKicksDbTopProduct = async (query) => {
+  const products = await searchKicksDbProducts(query, 1);
+  return products.length > 0 ? products[0] : null;
 };
 
 const getKicksDbImage = (product) => {
@@ -98,6 +103,42 @@ process.on('unhandledRejection', (error) => {
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get('/search-products', async (req, res) => {
+  const query = String(req.query.q || '').trim();
+  if (!query) {
+    res.status(400).json({ error: 'Query parameter q is required.' });
+    return;
+  }
+
+  const requestedLimit = Number(req.query.limit);
+  const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 20) : 8;
+
+  const products = await searchKicksDbProducts(query, limit);
+  const results = products
+    .map((product) => {
+      const title =
+        typeof product?.title === 'string'
+          ? product.title
+          : typeof product?.name === 'string'
+            ? product.name
+            : '';
+      if (!title) {
+        return null;
+      }
+
+      return {
+        id: String(product.id ?? product.slug ?? product.sku ?? title),
+        title,
+        brand: typeof product.brand === 'string' ? product.brand : '',
+        sku: typeof product.sku === 'string' ? product.sku : '',
+        imageUrl: getKicksDbImage(product),
+      };
+    })
+    .filter(Boolean);
+
+  res.json({ results });
 });
 
 app.get('/search-image', async (req, res) => {

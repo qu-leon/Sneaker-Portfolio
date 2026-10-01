@@ -1,4 +1,12 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ChangeEvent,
+  FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import { authRedirectParams, supabase } from './supabaseClient';
 
@@ -16,6 +24,17 @@ type DeletedSneakerEntry = SneakerEntry & {
 };
 
 type ActiveTab = 'portfolio' | 'history';
+
+type SneakerSuggestion = {
+  id: string;
+  title: string;
+  brand: string;
+  sku: string;
+  imageUrl: string | null;
+};
+
+const SUGGESTION_DEBOUNCE_MS = 300;
+const SUGGESTION_MIN_QUERY_LENGTH = 2;
 
 type SortOption =
   | 'date-desc'
@@ -622,6 +641,12 @@ const migrateLegacyLocalData = async (
 
 export default function App() {
   const [shoeName, setShoeName] = useState('');
+  const [shoeSuggestions, setShoeSuggestions] = useState<SneakerSuggestion[]>([]);
+  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(-1);
+  // Suggestion the user picked from the dropdown; its image is reused on save instead of re-searching.
+  const [selectedSuggestion, setSelectedSuggestion] = useState<SneakerSuggestion | null>(null);
   const [size, setSize] = useState('10');
   const [purchaseDate, setPurchaseDate] = useState(getTodayDate());
   const [purchasePrice, setPurchasePrice] = useState('');
@@ -636,6 +661,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('portfolio');
   const [isSaving, setIsSaving] = useState(false);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const suggestionListRef = useRef<HTMLUListElement | null>(null);
   const floatingFormPanelRef = useRef<HTMLElement | null>(null);
   const floatingAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const selectAllEntriesRef = useRef<HTMLInputElement | null>(null);
@@ -863,6 +889,10 @@ export default function App() {
 
   const resetEntryForm = () => {
     setShoeName('');
+    setSelectedSuggestion(null);
+    setShoeSuggestions([]);
+    setIsSuggestionsOpen(false);
+    setHighlightedSuggestionIndex(-1);
     setSize('10');
     setPurchaseDate(getTodayDate());
     setPurchasePrice('');
@@ -877,6 +907,7 @@ export default function App() {
   const closeEntryForm = () => {
     setIsEntryFormOpen(false);
     setEditingEntryId(null);
+    setIsSuggestionsOpen(false);
   };
 
   const openPortfolioTab = () => {
@@ -1160,11 +1191,117 @@ export default function App() {
   const onEditEntry = (entry: SneakerEntry) => {
     setEditingEntryId(entry.id);
     setShoeName(entry.shoeName);
+    setSelectedSuggestion(null);
+    setShoeSuggestions([]);
+    setIsSuggestionsOpen(false);
     setSize(entry.size);
     setPurchaseDate(entry.purchaseDate);
     setPurchasePrice(entry.purchasePrice.toFixed(2));
     setIsEntryFormOpen(true);
   };
+
+  useEffect(() => {
+    if (!isEntryFormOpen) {
+      return;
+    }
+
+    const query = shoeName.trim();
+    if (query.length < SUGGESTION_MIN_QUERY_LENGTH || selectedSuggestion?.title === query) {
+      setShoeSuggestions([]);
+      setIsLoadingSuggestions(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setIsLoadingSuggestions(true);
+      try {
+        const apiBaseUrl = getSneaksApiBaseUrl();
+        const response = await fetch(
+          `${apiBaseUrl}/search-products?q=${encodeURIComponent(query)}&limit=8`,
+          { signal: controller.signal }
+        );
+        if (!response.ok) {
+          setShoeSuggestions([]);
+          return;
+        }
+
+        const data = await response.json();
+        const results: SneakerSuggestion[] = Array.isArray(data?.results)
+          ? data.results.filter(
+              (item: unknown): item is SneakerSuggestion =>
+                typeof item === 'object' &&
+                item !== null &&
+                typeof (item as SneakerSuggestion).title === 'string'
+            )
+          : [];
+        setShoeSuggestions(results);
+        setHighlightedSuggestionIndex(-1);
+        setIsSuggestionsOpen(true);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setShoeSuggestions([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingSuggestions(false);
+        }
+      }
+    }, SUGGESTION_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [shoeName, isEntryFormOpen, selectedSuggestion]);
+
+  const onShoeNameChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setShoeName(event.target.value);
+    setSelectedSuggestion(null);
+    setIsSuggestionsOpen(true);
+  };
+
+  const onSelectSuggestion = (suggestion: SneakerSuggestion) => {
+    setShoeName(suggestion.title);
+    setSelectedSuggestion(suggestion);
+    setShoeSuggestions([]);
+    setIsSuggestionsOpen(false);
+    setHighlightedSuggestionIndex(-1);
+  };
+
+  const onShoeNameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (!isSuggestionsOpen || shoeSuggestions.length === 0) {
+      if (event.key === 'Escape') {
+        setIsSuggestionsOpen(false);
+      }
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setHighlightedSuggestionIndex((index) => (index + 1) % shoeSuggestions.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlightedSuggestionIndex((index) =>
+        index <= 0 ? shoeSuggestions.length - 1 : index - 1
+      );
+    } else if (event.key === 'Enter' && highlightedSuggestionIndex >= 0) {
+      event.preventDefault();
+      onSelectSuggestion(shoeSuggestions[highlightedSuggestionIndex]);
+    } else if (event.key === 'Escape') {
+      setIsSuggestionsOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    if (highlightedSuggestionIndex < 0 || !suggestionListRef.current) {
+      return;
+    }
+    const activeItem = suggestionListRef.current.children[highlightedSuggestionIndex];
+    if (activeItem instanceof HTMLElement) {
+      activeItem.scrollIntoView({ block: 'nearest' });
+    }
+  }, [highlightedSuggestionIndex]);
 
   const findSneakerImage = async (query: string): Promise<string> => {
     try {
@@ -1210,6 +1347,11 @@ export default function App() {
     try {
       const trimmedShoeName = shoeName.trim();
       const trimmedSize = size.trim();
+      const selectedImageUrl =
+        selectedSuggestion?.title === trimmedShoeName && selectedSuggestion.imageUrl?.startsWith('http')
+          ? selectedSuggestion.imageUrl
+          : null;
+      const resolveImageUrl = async () => selectedImageUrl ?? (await findSneakerImage(trimmedShoeName));
 
       if (isEditingEntry && editingEntryId) {
         const existingEntry = entries.find((entry) => entry.id === editingEntryId);
@@ -1219,9 +1361,10 @@ export default function App() {
         }
 
         const shouldRefreshImage =
+          selectedImageUrl !== null ||
           existingEntry.shoeName.trim().toLowerCase() !== trimmedShoeName.toLowerCase();
         const imageUrl = shouldRefreshImage
-          ? await findSneakerImage(trimmedShoeName)
+          ? await resolveImageUrl()
           : existingEntry.imageUrl || FALLBACK_IMAGE;
 
         const nextEntries = entries.map((entry) =>
@@ -1239,7 +1382,7 @@ export default function App() {
 
         persistEntries(nextEntries);
       } else {
-        const imageUrl = await findSneakerImage(trimmedShoeName);
+        const imageUrl = await resolveImageUrl();
         const newEntry: SneakerEntry = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           shoeName: trimmedShoeName,
@@ -2114,12 +2257,60 @@ export default function App() {
               </button>
             </div>
             <form className="form" onSubmit={onSubmit}>
-              <input
-                className="input"
-                placeholder="Shoe name (e.g. Jordan 1 Chicago)"
-                value={shoeName}
-                onChange={(event) => setShoeName(event.target.value)}
-              />
+              <div className="suggestionField">
+                <input
+                  className="input"
+                  placeholder="Shoe name (e.g. Jordan 1 Chicago)"
+                  value={shoeName}
+                  onChange={onShoeNameChange}
+                  onKeyDown={onShoeNameKeyDown}
+                  onFocus={() => setIsSuggestionsOpen(true)}
+                  onBlur={() => window.setTimeout(() => setIsSuggestionsOpen(false), 120)}
+                  role="combobox"
+                  aria-expanded={isSuggestionsOpen && shoeSuggestions.length > 0}
+                  aria-controls="shoe-suggestion-list"
+                  aria-autocomplete="list"
+                  autoComplete="off"
+                />
+                {isSuggestionsOpen && (isLoadingSuggestions || shoeSuggestions.length > 0) ? (
+                  <ul
+                    id="shoe-suggestion-list"
+                    ref={suggestionListRef}
+                    className="suggestionList"
+                    role="listbox"
+                  >
+                    {isLoadingSuggestions && shoeSuggestions.length === 0 ? (
+                      <li className="suggestionStatus">Searching...</li>
+                    ) : null}
+                    {shoeSuggestions.map((suggestion, index) => (
+                      <li
+                        key={suggestion.id}
+                        role="option"
+                        aria-selected={index === highlightedSuggestionIndex}
+                        className={`suggestionItem${
+                          index === highlightedSuggestionIndex ? ' suggestionItemActive' : ''
+                        }`}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onMouseEnter={() => setHighlightedSuggestionIndex(index)}
+                        onClick={() => onSelectSuggestion(suggestion)}
+                      >
+                        <img
+                          className="suggestionThumb"
+                          src={suggestion.imageUrl || FALLBACK_IMAGE}
+                          alt=""
+                          loading="lazy"
+                        />
+                        <span className="suggestionText">
+                          <span className="suggestionTitle">{suggestion.title}</span>
+                          {suggestion.sku ? (
+                            <span className="suggestionMeta">{suggestion.sku}</span>
+                          ) : null}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
               <select
                 className="input"
                 value={size}
