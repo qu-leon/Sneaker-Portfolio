@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
-import { authRedirectParams, supabase } from './supabaseClient';
+import { authRedirectParams, emailLink, supabase } from './supabaseClient';
 
 type SneakerEntry = {
   id: string;
@@ -668,6 +668,7 @@ export default function App() {
   const selectAllHistoryRef = useRef<HTMLInputElement | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isVerifyingEmailLink, setIsVerifyingEmailLink] = useState(emailLink !== null);
   const [isLoadingEntries, setIsLoadingEntries] = useState(false);
   const [signInEmail, setSignInEmail] = useState('');
   const [signInMessage, setSignInMessage] = useState(
@@ -678,7 +679,11 @@ export default function App() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [authMode, setAuthMode] = useState<
     'sign-in' | 'sign-up' | 'forgot-password' | 'reset-password'
-  >(authRedirectParams.get('type') === 'recovery' ? 'reset-password' : 'sign-in');
+  >(
+    authRedirectParams.get('type') === 'recovery' || emailLink?.type === 'recovery'
+      ? 'reset-password'
+      : 'sign-in'
+  );
   // Last state handed to the cloud; persist* diffs against these instead of possibly stale closures.
   const entriesRef = useRef<SneakerEntry[]>([]);
   const deletedEntriesRef = useRef<DeletedSneakerEntry[]>([]);
@@ -702,12 +707,37 @@ export default function App() {
       setIsAuthReady(true);
       if (event === 'PASSWORD_RECOVERY') {
         setAuthMode('reset-password');
-      } else if (!nextSession) {
+      } else if (event === 'SIGNED_OUT') {
         setAuthMode((previousMode) => (previousMode === 'reset-password' ? 'sign-in' : previousMode));
       }
     });
 
     return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || !emailLink) {
+      return;
+    }
+
+    const client = supabase;
+    const link = emailLink;
+    const verify = async () => {
+      const { error } = await client.auth.verifyOtp({
+        token_hash: link.tokenHash,
+        type: link.type,
+      });
+
+      if (error) {
+        setAuthMode('sign-in');
+        setSignInMessage(`This link is invalid or has expired. ${error.message}`);
+      } else if (link.type === 'recovery') {
+        setAuthMode('reset-password');
+      }
+      setIsVerifyingEmailLink(false);
+    };
+
+    void verify();
   }, []);
 
   useEffect(() => {
@@ -993,7 +1023,10 @@ export default function App() {
     const credentials = { email, password: signInPassword };
     const { data, error } =
       authMode === 'sign-up'
-        ? await supabase.auth.signUp(credentials)
+        ? await supabase.auth.signUp({
+            ...credentials,
+            options: { emailRedirectTo: `${window.location.origin}${window.location.pathname}` },
+          })
         : await supabase.auth.signInWithPassword(credentials);
     setIsSubmittingSignIn(false);
 
@@ -1791,7 +1824,13 @@ export default function App() {
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   };
 
-  if (!supabase || !isAuthReady || !session || authMode === 'reset-password') {
+  if (
+    !supabase ||
+    !isAuthReady ||
+    isVerifyingEmailLink ||
+    !session ||
+    authMode === 'reset-password'
+  ) {
     const signInStatus = signInMessage ? (
       <p className="authMessage" role="status">
         {signInMessage}
@@ -1808,8 +1847,8 @@ export default function App() {
               Cloud sync is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then
               restart the app.
             </p>
-          ) : !isAuthReady ? (
-            <p className="authMessage">Loading...</p>
+          ) : !isAuthReady || isVerifyingEmailLink ? (
+            <p className="authMessage">{isVerifyingEmailLink ? 'Signing you in...' : 'Loading...'}</p>
           ) : authMode === 'reset-password' && session ? (
             <form className="authForm" onSubmit={onSubmitNewPassword}>
               <p className="authMessage">Choose a new password for {session.user.email}.</p>
