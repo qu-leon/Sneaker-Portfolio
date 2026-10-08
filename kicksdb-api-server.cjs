@@ -26,6 +26,30 @@ const getQueryFallbackImage = (query) => {
   return `https://source.unsplash.com/600x600/?${encodeURIComponent(query)},sneaker`;
 };
 
+// StockX lists trading cards, collectibles, apparel, etc.; restrict results to footwear.
+const SNEAKER_PRODUCT_TYPES = new Set(['sneakers', 'shoes', 'footwear']);
+const SNEAKER_FILTER = 'product_type = "sneakers"';
+
+const isSneakerProduct = (product) => {
+  if (!product || typeof product !== 'object') {
+    return false;
+  }
+
+  const productType = typeof product.product_type === 'string' ? product.product_type.toLowerCase() : '';
+  if (productType) {
+    return SNEAKER_PRODUCT_TYPES.has(productType);
+  }
+
+  if (Array.isArray(product.categories)) {
+    return product.categories.some(
+      (category) => typeof category === 'string' && SNEAKER_PRODUCT_TYPES.has(category.toLowerCase())
+    );
+  }
+
+  // Unknown type: keep it rather than hide a legitimate shoe.
+  return true;
+};
+
 const searchKicksDbProducts = async (query, limit) => {
   if (!KICKSDB_API_KEY) {
     return [];
@@ -37,6 +61,7 @@ const searchKicksDbProducts = async (query, limit) => {
     url.searchParams.set('limit', String(limit));
     url.searchParams.set('market', KICKSDB_MARKET);
     url.searchParams.set('currency', KICKSDB_CURRENCY);
+    url.searchParams.set('filters', SNEAKER_FILTER);
 
     const response = await request(url, {
       method: 'GET',
@@ -52,7 +77,7 @@ const searchKicksDbProducts = async (query, limit) => {
     }
 
     const payload = await response.body.json();
-    return Array.isArray(payload?.data) ? payload.data : [];
+    return Array.isArray(payload?.data) ? payload.data.filter(isSneakerProduct) : [];
   } catch {
     return [];
   }
