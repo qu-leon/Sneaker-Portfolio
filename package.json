@@ -10,7 +10,11 @@
     "sneaks-api": "node kicksdb-api-server.cjs",
     "kicksdb-api": "node kicksdb-api-server.cjs",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "test:security": "vitest run --project security",
+    "test:typecheck": "tsc --noEmit -p tsconfig.tests.json",
+    "security:audit": "npm audit",
+    "security:secrets": "gitleaks git --redact --no-banner"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

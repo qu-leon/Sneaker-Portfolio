@@ -108,3 +108,53 @@ These values are injected at build time.
    - `https://YOUR_RENDER_URL/health`
    - `https://YOUR_RENDER_URL/search-image?q=Jordan%201`
 7. Set GitHub repository secret `VITE_SNEAKS_API_BASE_URL` to this Render URL, then push to `main` to redeploy Pages.
+
+## Testing and security checks
+
+```powershell
+npm run test:run
+npm run test:typecheck
+npm run test:security
+```
+
+The full suite includes React component tests and Node security tests. `test:security` runs the Node API, bundle, and Supabase suites; component security cases are also included in `test:run`.
+
+- [src/App.test.tsx](src/App.test.tsx): sign-in failures, session-loss privacy, rejected email-link responses, password-reset account-enumeration protection, stored markup escaping, and unsafe image lookup schemes. Supabase and image lookups are mocked; these checks do not prove real token expiry or database authorization.
+- [tests/api.security.test.ts](tests/api.security.test.ts): real HTTP requests to a temporary loopback Express server, with KicksDB mocked. Checks input handling, bounded result counts, upstream URL containment/timeouts, image schemes, and credential/error leakage. It never uses the real KicksDB key or quota.
+- [tests/secrets.security.test.ts](tests/secrets.security.test.ts): an in-memory Vite build with fake credential canaries verifies that server-only keys stay out of browser output. The public Supabase anon/publishable key is intentionally allowed. This is not a complete scan of existing credentials or Git history.
+- [tests/supabase.security.test.ts](tests/supabase.security.test.ts): configuration guards always run. Real RLS/Auth tests are opt-in and verify both collection tables using two ordinary users, anonymous requests, forged ownership, cross-user writes, and direct database validation.
+
+### Local Supabase security tests
+
+Use a disposable local Supabase instance with Docker and the Supabase CLI. Apply [supabase/schema.sql](supabase/schema.sql) to that local instance, then create two distinct, confirmed, ordinary test accounts. The suite does not create or delete accounts.
+
+Supply the following values in your private terminal environment or CI secret store. Do not commit credentials. These variables are not automatically loaded from `.env.local`.
+
+```powershell
+$env:RUN_SUPABASE_SECURITY_TESTS = '1'
+$env:SECURITY_SUPABASE_URL = 'http://127.0.0.1:54321'
+$env:SECURITY_SUPABASE_ANON_KEY = '<local anon or publishable key>'
+$env:SECURITY_SUPABASE_USER_A_EMAIL = '<first local test email>'
+$env:SECURITY_SUPABASE_USER_A_PASSWORD = '<first local test password>'
+$env:SECURITY_SUPABASE_USER_B_EMAIL = '<second local test email>'
+$env:SECURITY_SUPABASE_USER_B_PASSWORD = '<second local test password>'
+npm run test:security -- tests/supabase.security.test.ts
+Remove-Item Env:RUN_SUPABASE_SECURITY_TESTS
+```
+
+Only loopback URLs are accepted, and secret/service-role keys are rejected because they bypass RLS. Test rows use unique IDs and are cleaned up afterward, including after assertion failures. If the process is forcibly terminated, only rows with the `security-test-` prefix should need manual cleanup. Without explicit opt-in, live database tests are reported as skipped, not passed.
+
+### Dependency and repository secret scans
+
+```powershell
+npm run security:audit
+npm run security:secrets
+```
+
+The audit command contacts the npm registry and exits nonzero when advisories are found; it does not upgrade dependencies. The secret command requires [Gitleaks](https://github.com/gitleaks/gitleaks) on PATH and scans Git history with redacted output. It does not cover uncommitted files. Neither scanner is replaced by the browser-bundle canary test.
+
+### Outstanding security coverage
+
+The API currently has no explicit access control or rate limiting and permits all browser origins. API tests record TODOs for an access policy, rate limiting, oversized/structured query rejection, and an intended CORS allowlist. These TODOs are outstanding protections, not successful security checks.
+
+Real access-token expiry and expired/reused recovery links remain a TODO requiring a controlled Auth/mail environment. The component tests only simulate Auth rejection and session loss. No real-browser security tests are included, so browser execution behavior and a complete authentication round trip remain unverified. Supabase sign-out should not be assumed to immediately revoke already-issued access JWTs.

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
   });
 
   return {
+    emailLink: null as { tokenHash: string; type: 'email' | 'recovery' } | null,
     auth: {
       onAuthStateChange: vi.fn(),
       signInWithPassword: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => {
       signOut: vi.fn(),
       resetPasswordForEmail: vi.fn(),
       updateUser: vi.fn(),
+      verifyOtp: vi.fn(),
     },
     unsubscribe: vi.fn(),
     from: vi.fn(),
@@ -32,7 +34,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('./supabaseClient', () => ({
   supabase: { auth: mocks.auth, from: mocks.from },
-  emailLink: null,
+  get emailLink() { return mocks.emailLink; },
   authRedirectParams: new URLSearchParams(),
 }));
 
@@ -71,6 +73,7 @@ let savedRows: SavedEntryRow[];
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.emailLink = null;
   initialSession = null;
   initialEvent = 'INITIAL_SESSION';
   savedRows = [];
@@ -92,6 +95,7 @@ beforeEach(() => {
   });
   mocks.auth.resetPasswordForEmail.mockResolvedValue({ error: null });
   mocks.auth.updateUser.mockResolvedValue({ error: null });
+  mocks.auth.verifyOtp.mockResolvedValue({ error: null });
 
   for (const table of [mocks.entries, mocks.history]) {
     table.select.mockReturnThis();
@@ -336,4 +340,107 @@ describe('adding sneaker entries', () => {
     expect(screen.queryByRole('heading', { name: 'Jordan 1 Chicago' })).not.toBeInTheDocument();
     expect(mocks.entries.order).toHaveBeenCalledTimes(2);
   });
+});
+
+describe('security boundaries', () => {
+  test.each(['Expired email link', 'Already used email link'])(
+    'keeps the user signed out when Auth rejects a link: %s',
+    async (message) => {
+      mocks.emailLink = { tokenHash: 'test-invalid-token', type: 'recovery' };
+      mocks.auth.verifyOtp.mockResolvedValueOnce({ error: { message } });
+      render(<App />);
+
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        `This link is invalid or has expired. ${message}`,
+      );
+      expect(mocks.auth.verifyOtp).toHaveBeenCalledExactlyOnceWith({
+        token_hash: 'test-invalid-token', type: 'recovery',
+      });
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Update password' })).not.toBeInTheDocument();
+      expect(mocks.from).not.toHaveBeenCalled();
+    },
+  );
+
+  test('removes private collection data when the session is lost', async () => {
+    savedRows = [{
+      user_id: authenticatedSession.user.id,
+      id: 'private-entry',
+      shoe_name: 'Private collection sneaker',
+      size: '11',
+      purchase_date: '2026-10-15',
+      purchase_price: 180,
+      image_url: imageUrl,
+    }];
+    initialSession = authenticatedSession;
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Private collection sneaker' });
+
+    await act(async () => authListener('SIGNED_OUT', null));
+
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(screen.queryByText('Private collection sneaker')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open sneaker entry form' })).not.toBeInTheDocument();
+  });
+
+  test.each(['User not found', 'Email delivery failed'])(
+    'does not reveal account existence for reset error: %s',
+    async (message) => {
+      mocks.auth.resetPasswordForEmail.mockResolvedValueOnce({ error: { message, status: 400 } });
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(screen.getByRole('button', { name: 'Forgot password?' }));
+      await user.type(screen.getByLabelText('Email'), email);
+      await user.click(screen.getByRole('button', { name: 'Send reset link' }));
+
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        `If an account exists for ${email}, a password reset link is on its way.`,
+      );
+      expect(screen.queryByText(message)).not.toBeInTheDocument();
+    },
+  );
+
+  test('renders stored sneaker markup as text, not executable HTML', async () => {
+    const shoeName = '<img src=x onerror="window.__xss = true">';
+    savedRows = [{
+      user_id: authenticatedSession.user.id,
+      id: 'markup-entry',
+      shoe_name: shoeName,
+      size: '11',
+      purchase_date: '2026-10-15',
+      purchase_price: 180,
+      image_url: imageUrl,
+    }];
+    initialSession = authenticatedSession;
+    const { container } = render(<App />);
+
+    const heading = await screen.findByRole('heading', { name: shoeName });
+    expect(heading).toHaveTextContent(shoeName);
+    expect(heading.querySelector('img')).toBeNull();
+    expect(container.querySelector('[onerror]')).toBeNull();
+    expect(container.querySelector('script')).toBeNull();
+  });
+
+  test.each(['javascript:alert(1)', 'data:text/html,test'])(
+    'does not use the unsafe image lookup URL %s',
+    async (unsafeUrl) => {
+      mocks.fetch.mockImplementation(async () => new Response(
+        JSON.stringify({ results: [], imageUrl: unsafeUrl }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ));
+      const user = userEvent.setup();
+      await renderPortfolio();
+      const dialog = await openEntryForm(user);
+      await fillEntryForm(user, dialog);
+      await user.click(within(dialog).getByRole('button', { name: 'Add to Portfolio' }));
+
+      const image = await screen.findByRole('img', { name: 'Jordan 1 Chicago' });
+      expect(image).not.toHaveAttribute('src', unsafeUrl);
+      expect(image.getAttribute('src')).toMatch(/^https:\/\//);
+      expect(mocks.entries.upsert).toHaveBeenCalledWith(
+        [expect.objectContaining({ image_url: image.getAttribute('src') })],
+        { onConflict: 'user_id,id' },
+      );
+    },
+  );
 });
