@@ -653,7 +653,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('date-desc');
   const [isEntryFormOpen, setIsEntryFormOpen] = useState(false);
-  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [editingEntry, setEditingEntry] = useState<{ id: string; tab: ActiveTab } | null>(null);
   const [entries, setEntries] = useState<SneakerEntry[]>([]);
   const [deletedEntries, setDeletedEntries] = useState<DeletedSneakerEntry[]>([]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
@@ -824,7 +824,7 @@ export default function App() {
     deletedEntries.length > 0 && selectedHistoryCount === deletedEntries.length;
   const isHistoryPartiallySelected =
     selectedHistoryCount > 0 && selectedHistoryCount < deletedEntries.length;
-  const isEditingEntry = editingEntryId !== null;
+  const isEditingEntry = editingEntry !== null;
 
   const filteredEntries = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
@@ -929,14 +929,14 @@ export default function App() {
   };
 
   const openAddEntryForm = () => {
-    setEditingEntryId(null);
+    setEditingEntry(null);
     resetEntryForm();
     setIsEntryFormOpen(true);
   };
 
   const closeEntryForm = () => {
     setIsEntryFormOpen(false);
-    setEditingEntryId(null);
+    setEditingEntry(null);
     setIsSuggestionsOpen(false);
   };
 
@@ -1167,7 +1167,7 @@ export default function App() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setEditingEntryId(null);
+        setEditingEntry(null);
         setIsEntryFormOpen(false);
         return;
       }
@@ -1221,8 +1221,8 @@ export default function App() {
     }
   };
 
-  const onEditEntry = (entry: SneakerEntry) => {
-    setEditingEntryId(entry.id);
+  const onEditEntry = (entry: SneakerEntry, tab: ActiveTab) => {
+    setEditingEntry({ id: entry.id, tab });
     setShoeName(entry.shoeName);
     setSelectedSuggestion(null);
     setShoeSuggestions([]);
@@ -1386,8 +1386,9 @@ export default function App() {
           : null;
       const resolveImageUrl = async () => selectedImageUrl ?? (await findSneakerImage(trimmedShoeName));
 
-      if (isEditingEntry && editingEntryId) {
-        const existingEntry = entries.find((entry) => entry.id === editingEntryId);
+      if (editingEntry) {
+        const sourceEntries = editingEntry.tab === 'history' ? deletedEntries : entries;
+        const existingEntry = sourceEntries.find((entry) => entry.id === editingEntry.id);
         if (!existingEntry) {
           window.alert('The entry you are editing was not found. Please try again.');
           return;
@@ -1400,20 +1401,23 @@ export default function App() {
           ? await resolveImageUrl()
           : existingEntry.imageUrl || FALLBACK_IMAGE;
 
-        const nextEntries = entries.map((entry) =>
-          entry.id === editingEntryId
-            ? {
-                ...entry,
-                shoeName: trimmedShoeName,
-                size: trimmedSize,
-                purchaseDate: normalizedPurchaseDate,
-                purchasePrice: parsedPrice,
-                imageUrl,
-              }
-            : entry
-        );
+        const updates = {
+          shoeName: trimmedShoeName,
+          size: trimmedSize,
+          purchaseDate: normalizedPurchaseDate,
+          purchasePrice: parsedPrice,
+          imageUrl,
+        };
 
-        persistEntries(nextEntries);
+        if (editingEntry.tab === 'history') {
+          persistDeletedEntries(deletedEntries.map((entry) =>
+            entry.id === editingEntry.id ? { ...entry, ...updates } : entry
+          ));
+        } else {
+          persistEntries(entries.map((entry) =>
+            entry.id === editingEntry.id ? { ...entry, ...updates } : entry
+          ));
+        }
       } else {
         const imageUrl = await resolveImageUrl();
         const newEntry: SneakerEntry = {
@@ -2175,7 +2179,7 @@ export default function App() {
                       <button
                         type="button"
                         className="editButton"
-                        onClick={() => onEditEntry(entry)}
+                        onClick={() => onEditEntry(entry, 'portfolio')}
                       >
                         Edit
                       </button>
@@ -2231,6 +2235,13 @@ export default function App() {
                   <div className="entryActionRow">
                     <button
                       type="button"
+                      className="editButton"
+                      onClick={() => onEditEntry(entry, 'history')}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
                       className="deleteButton"
                       onClick={() => onPermanentlyDeleteEntry(entry.id)}
                     >
@@ -2279,7 +2290,7 @@ export default function App() {
           <section
             ref={floatingFormPanelRef}
             className="floatingFormPanel card"
-            aria-label="Add sneaker entry panel"
+            aria-label={isEditingEntry ? 'Edit sneaker entry panel' : 'Add sneaker entry panel'}
             role="dialog"
             aria-modal="true"
             tabIndex={-1}

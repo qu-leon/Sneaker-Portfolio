@@ -13,6 +13,7 @@ StockX-style portfolio functionality:
 - Adds shoe entries with shoe name, size, purchase date, and purchase price
 - Automatically looks up a shoe image using KicksDB API
 - Shows all entries in a portfolio list (image on the left)
+- Edits shoe name, size, purchase date, and purchase price in both Portfolio and History; history edits preserve the deletion timestamp and keep the entry in History
 - Saves entries to the cloud (Supabase) so they sync across devices
 - Export your data to Excel to transfer to other local machines as well
 

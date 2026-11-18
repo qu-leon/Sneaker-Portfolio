@@ -70,6 +70,7 @@ let initialSession: Session | null;
 let initialEvent: AuthChangeEvent;
 let authListener: (event: AuthChangeEvent, session: Session | null) => void;
 let savedRows: SavedEntryRow[];
+let savedHistoryRows: (SavedEntryRow & { deleted_at: string })[];
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -77,6 +78,7 @@ beforeEach(() => {
   initialSession = null;
   initialEvent = 'INITIAL_SESSION';
   savedRows = [];
+  savedHistoryRows = [];
   authListener = () => {};
 
   mocks.auth.onAuthStateChange.mockImplementation((callback: typeof authListener) => {
@@ -109,6 +111,14 @@ beforeEach(() => {
   }));
   mocks.entries.upsert.mockImplementation(async (rows: SavedEntryRow[]) => {
     savedRows = rows.map((row) => ({ ...row }));
+    return { error: null };
+  });
+  mocks.history.order.mockImplementation(async () => ({
+    data: savedHistoryRows.map((row) => ({ ...row })),
+    error: null,
+  }));
+  mocks.history.upsert.mockImplementation(async (rows: typeof savedHistoryRows) => {
+    savedHistoryRows = rows.map((row) => ({ ...row }));
     return { error: null };
   });
   mocks.from.mockImplementation((table: string) => {
@@ -339,6 +349,147 @@ describe('adding sneaker entries', () => {
     expect(await screen.findByRole('heading', { name: 'No Shoes Yet' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Jordan 1 Chicago' })).not.toBeInTheDocument();
     expect(mocks.entries.order).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('editing sneaker entries', () => {
+  const deletedAt = '2026-11-01T12:00:00Z';
+  const originalRow: SavedEntryRow = {
+    user_id: authenticatedSession.user.id,
+    id: 'shared-entry-id',
+    shoe_name: 'Jordan 1 Chicago',
+    size: '11',
+    purchase_date: '2026-10-15',
+    purchase_price: 180.50,
+    image_url: imageUrl,
+  };
+
+  beforeEach(() => {
+    initialSession = authenticatedSession;
+    savedRows = [{ ...originalRow }];
+    savedHistoryRows = [{ ...originalRow, deleted_at: deletedAt }];
+  });
+
+  const openEditForm = async (user: ReturnType<typeof userEvent.setup>, tab = 'History') => {
+    await screen.findByRole('heading', { name: originalRow.shoe_name });
+    await user.click(screen.getByRole('tab', { name: new RegExp(`^${tab}`) }));
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    return screen.getByRole('dialog', { name: 'Edit sneaker entry panel' });
+  };
+
+  test.each(['Portfolio', 'History'])('saves edits only to %s and reloads them after remounting', async (tab) => {
+    const user = userEvent.setup();
+    const view = render(<App />);
+    const dialog = await openEditForm(user, tab);
+    expect(within(dialog).getByRole('combobox', { expanded: false })).toHaveValue(originalRow.shoe_name);
+    expect(dialog.querySelector('select')).toHaveValue('11');
+    expect(dialog.querySelector('input[type="date"]')).toHaveValue('2026-10-15');
+    const price = within(dialog).getByPlaceholderText('Purchase price');
+    expect(price).toHaveValue('180.50');
+    await user.clear(price);
+    await user.type(price, '220');
+    await user.selectOptions(dialog.querySelector('select')!, '12');
+    fireEvent.change(dialog.querySelector('input[type="date"]')!, {
+      target: { value: '2026-10-20' },
+    });
+    await user.click(within(dialog).getByRole('button', { name: 'Save Changes' }));
+
+    const targetTable = tab === 'History' ? mocks.history : mocks.entries;
+    const otherTable = tab === 'History' ? mocks.entries : mocks.history;
+    const updatedRow = {
+      ...originalRow,
+      size: '12',
+      purchase_date: '2026-10-20',
+      purchase_price: 220,
+      ...(tab === 'History' ? { deleted_at: deletedAt } : {}),
+    };
+    await waitFor(() => expect(targetTable.upsert).toHaveBeenCalledExactlyOnceWith(
+      [updatedRow], { onConflict: 'user_id,id' },
+    ));
+    expect(otherTable.upsert).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText('12', { selector: 'dd' })).toBeInTheDocument();
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes('/search-image'))).toBe(false);
+
+    view.unmount();
+    render(<App />);
+    await screen.findByRole('heading', { name: originalRow.shoe_name });
+    await user.click(screen.getByRole('tab', { name: new RegExp(`^${tab}`) }));
+    expect(screen.getByText('12', { selector: 'dd' })).toBeInTheDocument();
+    expect(screen.getByText('2026-10-20', { selector: 'dd' })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: tab === 'History' ? /^Portfolio/ : /^History/ }));
+    expect(screen.getByText('11', { selector: 'dd' })).toBeInTheDocument();
+  });
+
+  test('refreshes the image when renaming a history entry', async () => {
+    const updatedImageUrl = 'https://example.com/jordan-4.jpg';
+    mocks.fetch.mockImplementation(async () => new Response(
+      JSON.stringify({ results: [], imageUrl: updatedImageUrl }),
+      { headers: { 'Content-Type': 'application/json' } },
+    ));
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await openEditForm(user);
+    const name = within(dialog).getByPlaceholderText('Shoe name (e.g. Jordan 1 Chicago)');
+    await user.clear(name);
+    await user.type(name, 'Jordan 4');
+    await user.click(within(dialog).getByRole('button', { name: 'Save Changes' }));
+
+    expect(await screen.findByRole('img', { name: 'Jordan 4' })).toHaveAttribute('src', updatedImageUrl);
+    await waitFor(() => expect(mocks.history.upsert).toHaveBeenCalledWith(
+      [{ ...originalRow, shoe_name: 'Jordan 4', image_url: updatedImageUrl, deleted_at: deletedAt }],
+      { onConflict: 'user_id,id' },
+    ));
+    expect(mocks.entries.upsert).not.toHaveBeenCalled();
+  });
+
+  test.each(['close', 'Escape'])('discards history edits on %s', async (dismissal) => {
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await openEditForm(user);
+    await user.type(within(dialog).getByPlaceholderText('Purchase price'), '9');
+    if (dismissal === 'close') {
+      await user.click(within(dialog).getByRole('button', { name: 'Close sneaker form panel' }));
+    } else {
+      await user.keyboard('{Escape}');
+    }
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.history.upsert).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByPlaceholderText('Purchase price')).toHaveValue('180.50');
+  });
+
+  test('rejects invalid history edits without saving', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await openEditForm(user);
+    const price = within(dialog).getByPlaceholderText('Purchase price');
+    await user.clear(price);
+    await user.type(price, '-1');
+    await user.click(within(dialog).getByRole('button', { name: 'Save Changes' }));
+
+    expect(mocks.alert).toHaveBeenCalledWith('Purchase price must be a positive number.');
+    expect(mocks.history.upsert).not.toHaveBeenCalled();
+    expect(dialog).toBeInTheDocument();
+  });
+
+  test('reloads saved history when a cloud edit fails', async () => {
+    mocks.history.upsert.mockResolvedValueOnce({ error: { message: 'Network error' } });
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await openEditForm(user);
+    const name = within(dialog).getByPlaceholderText('Shoe name (e.g. Jordan 1 Chicago)');
+    await user.clear(name);
+    await user.type(name, 'Unsaved name');
+    await user.click(within(dialog).getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(mocks.alert).toHaveBeenCalledWith(
+      'Could not save your changes to the cloud. Reloading your last saved data.',
+    ));
+    expect(await screen.findByRole('heading', { name: originalRow.shoe_name })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Unsaved name' })).not.toBeInTheDocument();
+    expect(mocks.history.order).toHaveBeenCalledTimes(2);
   });
 });
 
