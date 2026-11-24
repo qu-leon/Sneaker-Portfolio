@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   FormEvent,
   KeyboardEvent as ReactKeyboardEvent,
+  SyntheticEvent,
   useEffect,
   useMemo,
   useRef,
@@ -48,6 +49,16 @@ const STORAGE_KEY = 'sneaker-portfolio-entries-v1';
 const HISTORY_STORAGE_KEY = 'sneaker-portfolio-history-v1';
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=60';
+
+// Swap a broken image for the fallback once; the flag prevents a loop if the fallback also fails.
+const onImageError = (event: SyntheticEvent<HTMLImageElement>) => {
+  const image = event.currentTarget;
+  if (image.dataset.fallbackApplied) {
+    return;
+  }
+  image.dataset.fallbackApplied = 'true';
+  image.src = FALLBACK_IMAGE;
+};
 const ISO_DATE_PATTERN = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 
 const getTodayDate = () => {
@@ -2158,7 +2169,7 @@ export default function App() {
                       onChange={() => onToggleEntrySelected(entry.id)}
                       aria-label={`Select ${entry.shoeName}`}
                     />
-                    <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
+                    <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} onError={onImageError} />
                   </div>
                   <div className="entryContent">
                     <div className="entryHeader">
@@ -2211,7 +2222,7 @@ export default function App() {
                     onChange={() => onToggleHistorySelected(entry.id)}
                     aria-label={`Select ${entry.shoeName}`}
                   />
-                  <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} />
+                  <img className="thumb" src={entry.imageUrl || FALLBACK_IMAGE} alt={entry.shoeName} onError={onImageError} />
                 </div>
                 <div className="entryContent">
                   <div className="entryHeader">
@@ -2349,6 +2360,7 @@ export default function App() {
                           src={suggestion.imageUrl || FALLBACK_IMAGE}
                           alt=""
                           loading="lazy"
+                          onError={onImageError}
                         />
                         <span className="suggestionText">
                           <span className="suggestionTitle">{suggestion.title}</span>

@@ -22,10 +22,6 @@ if (proxyUrl) {
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=60';
 
-const getQueryFallbackImage = (query) => {
-  return `https://source.unsplash.com/600x600/?${encodeURIComponent(query)},sneaker`;
-};
-
 // StockX lists trading cards, collectibles, apparel, etc.; restrict results to footwear.
 const SNEAKER_PRODUCT_TYPES = new Set(['sneakers', 'shoes', 'footwear']);
 const SNEAKER_FILTER = 'product_type = "sneakers"';
@@ -181,15 +177,15 @@ app.get('/search-image', async (req, res) => {
   }
 
   res.json({
-    imageUrl: getQueryFallbackImage(query),
+    imageUrl: FALLBACK_IMAGE,
     product: topProduct || null,
-    source: 'query-fallback',
+    source: 'fallback',
   });
 });
 
 app.listen(port, () => {
   console.log(`KicksDB image proxy listening on http://localhost:${port}`);
   if (!KICKSDB_API_KEY) {
-    console.log('Warning: KICKSDB_API_KEY is not set. Using query-fallback images.');
+    console.log('Warning: KICKSDB_API_KEY is not set. Using fallback images.');
   }
 });

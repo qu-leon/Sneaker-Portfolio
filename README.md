@@ -60,7 +60,7 @@ The anon key is safe to ship to the browser; row-level security restricts each u
 
 ## Notes
 
-- Image lookup tries KicksDB first and falls back to a query-based fallback image URL if no KicksDB image is available.
+- Image lookup tries KicksDB first and falls back to a default sneaker image if no KicksDB image is available. Images that fail to load in the browser also fall back to the default image.
 - Purchase date uses the browser date picker and defaults to today.
 
 ## KicksDB setup
@@ -74,7 +74,7 @@ KICKSDB_MARKET=US
 KICKSDB_CURRENCY=USD
 ```
 
-Only `KICKSDB_API_KEY` is required. Without it, the server skips KicksDB and falls back to query-based image URLs.
+Only `KICKSDB_API_KEY` is required. Without it, the server skips KicksDB and falls back to the default sneaker image.
 
 ## Optional API host override
 

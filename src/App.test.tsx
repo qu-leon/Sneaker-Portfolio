@@ -313,6 +313,24 @@ describe('adding sneaker entries', () => {
     expect(mocks.entries.upsert).toHaveBeenCalledOnce();
   });
 
+  test('swaps a broken entry image for the fallback image only once', async () => {
+    const user = userEvent.setup();
+    await renderPortfolio();
+    const dialog = await openEntryForm(user);
+    await fillEntryForm(user, dialog);
+    await user.click(within(dialog).getByRole('button', { name: 'Add to Portfolio' }));
+
+    const image = await screen.findByRole('img', { name: 'Jordan 1 Chicago' });
+    fireEvent.error(image);
+    const fallbackSrc = image.getAttribute('src');
+    expect(fallbackSrc).not.toBe(imageUrl);
+    expect(fallbackSrc).toMatch(/^https:\/\/images\.unsplash\.com\//);
+
+    image.setAttribute('src', 'https://example.com/also-broken.jpg');
+    fireEvent.error(image);
+    expect(image).toHaveAttribute('src', 'https://example.com/also-broken.jpg');
+  });
+
   test('does not save an entry with missing required fields', async () => {
     const user = userEvent.setup();
     await renderPortfolio();

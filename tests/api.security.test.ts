@@ -129,18 +129,17 @@ describe('API security', () => {
       const image = await fetch(`${origin}/search-image?q=Jordan`);
       const payload = await image.json();
       expect(payload.imageUrl).toMatch(/^https:\/\//);
-      expect(payload.source).toBe('query-fallback');
+      expect(payload.source).toBe('fallback');
     },
   );
 
-  test('does not let fallback search text introduce separate URL parameters', async () => {
+  test('returns the static fallback image without echoing search text', async () => {
     const query = 'Jordan?token=private&redirect=https://example.com';
     const response = await fetch(`${origin}/search-image?${new URLSearchParams({ q: query })}`);
     const payload = await response.json();
     const image = new URL(payload.imageUrl);
-    expect(image.origin).toBe('https://source.unsplash.com');
-    expect(image.pathname).toBe('/600x600/');
-    expect(image.search).toBe(`?${encodeURIComponent(query)},sneaker`);
+    expect(image.origin).toBe('https://images.unsplash.com');
+    expect(payload.imageUrl).not.toContain('Jordan');
     expect(image.searchParams.has('redirect')).toBe(false);
     expect(image.searchParams.has('token')).toBe(false);
   });
